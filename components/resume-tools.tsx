@@ -51,6 +51,20 @@ export function ResumeTools() {
     const missing = (what: string, id: string) => {
       throw new Error(`No ${what} with id "${id}". Call get_resume for the real ids.`);
     };
+    // Until the upload has been carried across, the live document is a stub and
+    // the screen is still showing the PDF. A narrow edit onto that stub really
+    // does apply, and really does change nothing anyone can see — so the reply
+    // says the name was changed while the page keeps the old one, and the
+    // honest reading from the other side of it is that the model made the edit
+    // up. Refusing here is what makes update_resume come first, rather than
+    // hoping the instructions are followed.
+    const needsCarry = () => {
+      const { doc, sourceText } = store();
+      if (!isEmptyResume(doc) || !sourceText.trim()) return;
+      throw new Error(
+        "The live document is still empty and their resume is the uploaded PDF already in your instructions. Carry it across in full with update_resume, then make this change.",
+      );
+    };
 
     return {
       get_resume: {
@@ -97,6 +111,7 @@ export function ResumeTools() {
         description: "Patch name, headline, contact, links, or summary.",
         parameters: resumeBasicsSchema.partial(),
         execute: async (basics: Partial<z.infer<typeof resumeBasicsSchema>>) => {
+          needsCarry();
           store().patchDoc({ basics: { ...store().doc.basics, ...basics } });
           mark(boxIds.basics);
           return { ok: true };
@@ -110,6 +125,7 @@ export function ResumeTools() {
           "Patch the look: header layout (centered / split / accent-bar / signature), colors (accent, text, muted, background), density, page size, signature.",
         parameters: resumeThemeSchema.partial(),
         execute: async (theme: Partial<z.infer<typeof resumeThemeSchema>>) => {
+          needsCarry();
           store().patchDoc({ theme: { ...store().doc.theme, ...theme } });
           // Colors and density land page-wide, but a header change is local
           // enough to point at — and it is the one people notice too late.
@@ -126,6 +142,7 @@ export function ResumeTools() {
         description: "Add or replace a whole section by id.",
         parameters: resumeSectionSchema,
         execute: async (section: z.infer<typeof resumeSectionSchema>) => {
+          needsCarry();
           store().upsertSection(section);
           mark(boxIds.section(section.id));
           return { ok: true, id: section.id };
@@ -151,6 +168,7 @@ export function ResumeTools() {
         description: "Add or replace one item (a job, project, degree) inside an existing section.",
         parameters: itemPayload,
         execute: async ({ sectionId, item }: z.infer<typeof itemPayload>) => {
+          needsCarry();
           if (!store().upsertItem(sectionId, item)) missing("section", sectionId);
           mark(boxIds.item(item.id));
           return { ok: true, sectionId, id: item.id };

@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+/**
+ * Ten times a heavy resume. Shared so the browser can turn an oversized file
+ * away before it travels, rather than finding out from the upload endpoint.
+ */
+export const MAX_PDF_BYTES = 10 * 1024 * 1024;
+
 export const resumeLinkSchema = z.object({
   label: z.string(),
   href: z.string(),
@@ -101,8 +107,22 @@ export const blankResume = (): ResumeDoc => ({
   ],
 });
 
+/** The stub text a new document opens with, which nobody typed. */
+const stockBasics = new Set(
+  Object.values(blankResume().basics).filter((value) => typeof value === "string"),
+);
+
+/**
+ * Whether there is anything of theirs in here yet. It decides whether the
+ * preview draws this document or the PDF behind it, so the header has to
+ * count: reading only the sections meant a name they had just changed left the
+ * screen showing the old one, and the reply saying otherwise read as a lie.
+ */
 export function isEmptyResume(doc: ResumeDoc): boolean {
-  if (doc.basics.summary?.trim()) return false;
+  const { links, ...text } = doc.basics;
+  if (links.length > 0) return false;
+  if (Object.values(text).some((value) => value?.trim() && !stockBasics.has(value))) return false;
+
   return doc.sections.every((section) => section.items.length === 0 && !section.lines?.length);
 }
 
