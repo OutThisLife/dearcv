@@ -25,6 +25,16 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "DearCV",
   description: "Chat with a live PDF resume.",
+  openGraph: {
+    title: "DearCV",
+    description: "Chat with a live PDF resume.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "DearCV",
+    description: "Chat with a live PDF resume.",
+  },
 };
 
 export default function RootLayout({
