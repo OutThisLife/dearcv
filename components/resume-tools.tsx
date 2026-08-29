@@ -143,7 +143,7 @@ export function ResumeTools() {
           if (!store().removeSection(id)) missing("section", id);
           return { ok: true, id };
         },
-        render: ({ args }: { args: { id?: string } }) => <ToolNote label="Removed a section" />,
+        render: () => <ToolNote label="Removed a section" />,
       },
       upsert_item: {
         toolName: "upsert_item",
@@ -165,6 +165,12 @@ export function ResumeTools() {
         description: "Remove one item from a section.",
         parameters: itemRef,
         execute: async ({ sectionId, itemId }: z.infer<typeof itemRef>) => {
+          // A wrong section id fails the same way a wrong item id does, and
+          // being told the item is missing sends the model hunting in the
+          // wrong place.
+          if (!store().doc.sections.some((section) => section.id === sectionId)) {
+            missing("section", sectionId);
+          }
           if (!store().removeItem(sectionId, itemId)) missing("item", itemId);
           // The item is gone, so point at the gap it left.
           mark(boxIds.section(sectionId));
