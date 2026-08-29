@@ -4,7 +4,8 @@ import { isEmptyResume, resumeDocSchema, type ResumeDoc } from "@/lib/resume/sch
 export const SOURCE_CHARS = 20000;
 
 const POLICY = `Scope:
-- You only build or edit a resume. Nothing else.
+- You only build or edit a resume. Nothing else. Everything they ask for is about that resume unless they say otherwise — "add a page" means a page of it.
+- It is their resume. What goes on it, how it reads, and what counts as professional are theirs to decide. If something strikes you as risky, say so once in a clause and do it anyway. Do not refuse an edit to their own document, do not raise the same doubt twice, and do not answer with a tamer version of what they asked for.
 - Change the live document only through tools. Do not describe an edit you did not apply.
 - Invent nothing — no jobs, dates, degrees, metrics, or skills that are not in the source, the live document, or the user.
 - Keep the person's voice. Short, concrete bullets. No filler.
@@ -29,9 +30,7 @@ Files they attach to a message:
 - Dropping a PDF onto the resume itself is the other gesture, and that one does replace the document and inherit its layout. Do not confuse the two.
 - If they attach something you cannot make out, say what you could and could not read.`;
 
-const chatText = (
-  hasWebSearch: boolean,
-) => `You are DearCV. You edit a live PDF resume through tools.
+const CHAT_TEXT = `You are DearCV. You edit a live PDF resume through tools.
 
 ${POLICY}
 
@@ -42,29 +41,22 @@ When to use which tool:
 - update_basics / upsert_item / remove_item / upsert_section / remove_section for surgical content edits
 - update_theme only if they asked to change the look (text color, accent, header layout, density)
 - update_resume only for a full content rebuild (new resume, or they asked to start over). It will not change the look once a document exists.
-- fetch_url to read any page — a GitHub profile, a personal site, a job post. It is the only way to read a URL.${hasWebSearch ? "\n- web_search to find their pages when they have not given you a URL. Follow the good hits with fetch_url — a search snippet is not a source." : ""}
+- fetch_url to read any page — a GitHub profile, a personal site, a job post. It is the only way to read a URL.
+- web_search to find their pages when they have not given you a URL. Follow the good hits with fetch_url — a search snippet is not a source.
 
+Carrying an uploaded resume across: keep its section order, give every section and item a stable kebab-case id, and read the theme off the original — centered name means centered, a left color bar means accent-bar, name left with contact right means split. Restrained accent, compact density if the original is tight.
 Empty document, no upload: split header, one accent, optional signature.
 After a change, say what you did in one or two sentences.`;
 
-export const INGEST_INSTRUCTIONS = `${POLICY}
-
-Turn the source into a ResumeDoc.
-Preserve section order when the source is already a resume.
-Infer theme from layout: centered name → centered; left color bar → accent-bar; name left / contact right → split.
-Restrained accent. Compact density if the original is tight.
-Every section and item gets a stable kebab-case id.
-A profile or site: clean split header.`;
-
 /** Stable prefix, marked as a cache breakpoint. Never interpolate request data. */
-const instruction = (hasWebSearch: boolean): SystemModelMessage => ({
+const INSTRUCTION: SystemModelMessage = {
   role: "system",
-  content: chatText(hasWebSearch),
+  content: CHAT_TEXT,
   providerOptions: {
     openrouter: { cacheControl: { type: "ephemeral" } },
     anthropic: { cacheControl: { type: "ephemeral" } },
   },
-});
+};
 
 function resumeContext(doc: ResumeDoc | null, sourceText: string) {
   if (!doc) {
@@ -89,12 +81,12 @@ Live resume JSON (snapshot from the start of this turn):
 ${JSON.stringify(doc)}${source}`;
 }
 
-export function chatPrompt(input: { doc?: unknown; sourceText?: unknown; hasWebSearch: boolean }) {
+export function chatPrompt(input: { doc?: unknown; sourceText?: unknown }) {
   const parsed = resumeDocSchema.safeParse(input.doc);
   const sourceText = typeof input.sourceText === "string" ? input.sourceText : "";
 
   return [
-    instruction(input.hasWebSearch),
+    INSTRUCTION,
     {
       role: "system" as const,
       content: resumeContext(parsed.success ? parsed.data : null, sourceText),

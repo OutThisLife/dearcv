@@ -1,6 +1,7 @@
 import { frontendTools } from "@assistant-ui/ai-sdk";
 import {
   convertToModelMessages,
+  generateId,
   isStepCount,
   streamText,
   tool,
@@ -59,7 +60,8 @@ export async function POST(req: Request) {
   const result = streamText({
     model: llm.model,
     messages: await convertToModelMessages(messages),
-    instructions: chatPrompt({ doc, sourceText, hasWebSearch: !!llm.openrouter }),
+    instructions: chatPrompt({ doc, sourceText }),
+    abortSignal: req.signal,
     // Frontend tools have no execute, so they end the loop on their own. The
     // budget is for chained server tools: search, then fetch each good hit.
     stopWhen: isStepCount(8),
@@ -67,14 +69,8 @@ export async function POST(req: Request) {
     timeout: { totalMs: 55_000, toolMs: 25_000 },
     tools: {
       ...frontendTools(tools ?? {}),
-      ...(llm.openrouter
-        ? {
-            web_search: llm.openrouter.tools.webSearch({
-              engine: "auto",
-              maxResults: 5,
-            }),
-          }
-        : {}),
+      // Every provider runs its own search, so there is nothing here to build.
+      web_search: llm.search,
       fetch_url: tool({
         description: `Read any public page as text: a GitHub profile or repository, a personal site, a portfolio, a job post. This is how you look someone up. What comes back is material to work from — apply it with the editing tools. ${SOURCE_NOTE}`,
         inputSchema: z.object({
@@ -88,9 +84,13 @@ export async function POST(req: Request) {
   return result.toUIMessageStreamResponse({
     sendReasoning: true,
     onError: llmErrorMessage,
-    // Needed for the finished assistant message to carry a stable id, so a
-    // reload rebuilds the same thread rather than a near-copy of it.
     originalMessages: messages,
+    // Without this the reply is stored with an empty id, because the SDK only
+    // infers one when the last original message is itself an assistant's. Two
+    // of those in a thread are indistinguishable to the runtime's history, so
+    // reopening it broke the chain and every turn re-parented to the root —
+    // which is what turned a conversation into a row of branches.
+    generateMessageId: generateId,
     onFinish: ({ messages: history }) => {
       if (!isThreadId(threadId)) return;
       // Nothing downstream can retry this, so a failure has to at least be

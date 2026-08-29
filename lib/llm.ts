@@ -1,7 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { defaultSettingsMiddleware, wrapLanguageModel } from "ai";
 import { PROVIDERS, type LlmProvider } from "@/lib/providers";
 
 // Picking a model is our job, not the user's. RESUME_MODEL is the
@@ -26,9 +25,8 @@ export function readLlmRequest(req: Request) {
 }
 
 /**
- * One provider, two models: `model` drives the tool loop, `object` generates a
- * ResumeDoc. Structured output runs non-strict because ResumeDoc uses
- * `.optional()`, which strict JSON schema rejects.
+ * `search` is whichever web search the provider runs itself. All three ship
+ * one, they execute it on their side, and it bills to the user's own key.
  */
 export function createModel(input: {
   apiKey: string;
@@ -37,21 +35,18 @@ export function createModel(input: {
   sessionId?: string;
 }) {
   if (input.provider === "openai") {
-    const model = createOpenAI({ apiKey: input.apiKey })(input.model);
+    const openai = createOpenAI({ apiKey: input.apiKey });
     return {
-      model,
-      object: wrapLanguageModel({
-        model,
-        middleware: defaultSettingsMiddleware({
-          settings: { providerOptions: { openai: { strictJsonSchema: false } } },
-        }),
-      }),
-      openrouter: null,
+      model: openai(input.model),
+      search: openai.tools.webSearch({ searchContextSize: "low" }),
     };
   }
   if (input.provider === "anthropic") {
-    const model = createAnthropic({ apiKey: input.apiKey })(input.model);
-    return { model, object: model, openrouter: null };
+    const anthropic = createAnthropic({ apiKey: input.apiKey });
+    return {
+      model: anthropic(input.model),
+      search: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
+    };
   }
 
   const openrouter = createOpenRouter({
@@ -75,13 +70,7 @@ export function createModel(input: {
       plugins: [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }],
       extraBody,
     }),
-    object: openrouter(input.model, {
-      plugins: [{ id: "response-healing" }],
-      structuredOutputs: { strict: false },
-      reasoning: { effort: "low" },
-      extraBody,
-    }),
-    openrouter,
+    search: openrouter.tools.webSearch({ engine: "auto", maxResults: 5 }),
   };
 }
 
