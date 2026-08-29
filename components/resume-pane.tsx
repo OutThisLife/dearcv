@@ -11,8 +11,10 @@ export function ResumePane() {
   const originalUrl = useResumeStore((s) => s.originalUrl);
   const previewUrl = useResumeStore((s) => s.previewUrl);
   const error = useResumeStore((s) => s.error);
-  const setError = useResumeStore((s) => s.setError);
-  const resetBlank = useResumeStore((s) => s.resetBlank);
+
+  // Actions are created once and never replaced, so subscribing to one is a
+  // hook and a selector spent fetching a constant. Reached at the click.
+  const { setError, resetBlank } = useResumeStore.getState();
 
   // What Save hands over is what the pane is showing: their own file until
   // something is edited, our redraw of it after.

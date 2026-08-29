@@ -18,13 +18,14 @@ import { useAuthStore } from "@/lib/store/auth";
 const PROVIDER_OPTIONS = PROVIDERS.map(({ id, label }) => ({ id, label }));
 
 export function AuthDialog() {
+  // Subscribed, because the dialog is drawn from them.
   const dialogOpen = useAuthStore((s) => s.dialogOpen);
-  const closeDialog = useAuthStore((s) => s.closeDialog);
-  const connect = useAuthStore((s) => s.connect);
-  const disconnect = useAuthStore((s) => s.disconnect);
   const storedProvider = useAuthStore((s) => s.provider);
   const storedApiKey = useAuthStore((s) => s.apiKey);
   const storedVia = useAuthStore((s) => s.via);
+
+  // Not subscribed, because an action never changes.
+  const { closeDialog, connect, disconnect } = useAuthStore.getState();
 
   const [provider, setProvider] = useState<LlmProvider>(storedProvider);
   const [apiKey, setApiKey] = useState("");

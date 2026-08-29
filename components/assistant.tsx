@@ -104,11 +104,13 @@ function AddressThread() {
   const answered = useAuiState((s) =>
     s.thread.messages.some((message) => message.role === "assistant" && message.content.length > 0),
   );
-  const address = useThreadStore((s) => s.address);
 
   useEffect(() => {
-    if (answered) address();
-  }, [answered, address]);
+    // The action is reached, not subscribed: listing it as a dependency reads
+    // as though this could re-run when the setter changes, and the answer
+    // arriving is the only thing that should set it off.
+    if (answered) useThreadStore.getState().address();
+  }, [answered]);
 
   return null;
 }
@@ -130,7 +132,6 @@ function ChatHeader() {
   const apiKey = useAuthStore((s) => s.apiKey);
   const serverConfigured = useAuthStore((s) => s.serverConfigured);
   const provider = useAuthStore((s) => s.provider);
-  const openDialog = useAuthStore((s) => s.openDialog);
   const connected = Boolean(apiKey || serverConfigured);
   const label = apiKey ? providerLabel(provider) : serverConfigured ? "Ready" : "Connect";
 
@@ -138,7 +139,11 @@ function ChatHeader() {
     <header className="flex h-12 shrink-0 items-center justify-between px-4">
       <DearCvWordmark />
       {hydrated && (
-        <Button variant={connected ? "text" : "blush"} size="sm" onClick={openDialog}>
+        <Button
+          variant={connected ? "text" : "blush"}
+          size="sm"
+          onClick={() => useAuthStore.getState().openDialog()}
+        >
           {label}
         </Button>
       )}
@@ -147,10 +152,9 @@ function ChatHeader() {
 }
 
 function AuthBootstrap() {
-  const hydrate = useAuthStore((s) => s.hydrate);
-  const setServerConfigured = useAuthStore((s) => s.setServerConfigured);
-
   useEffect(() => {
+    const { hydrate, setServerConfigured } = useAuthStore.getState();
+
     hydrate();
     void fetch("/api/auth/status")
       .then((res) => res.json())
@@ -158,7 +162,8 @@ function AuthBootstrap() {
         setServerConfigured(Boolean(data.configured));
       })
       .catch(() => undefined);
-  }, [hydrate, setServerConfigured]);
+    // Once, on mount. The two actions it calls never change.
+  }, []);
 
   return null;
 }
