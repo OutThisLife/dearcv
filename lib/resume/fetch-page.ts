@@ -1,5 +1,6 @@
 import { fetchGithub, githubTarget } from "@/lib/resume/github";
 import { extractText } from "@/lib/resume/html-text";
+import { readCapped, safeFetch } from "@/lib/resume/safe-fetch";
 import { SOURCE_CHARS } from "@/lib/prompts";
 
 const TIMEOUT_MS = 20_000;
@@ -27,9 +28,8 @@ const deadline = (signal?: AbortSignal) =>
     : AbortSignal.timeout(TIMEOUT_MS);
 
 async function readDirect(url: string, signal?: AbortSignal): Promise<PageFetch> {
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     headers: { "user-agent": UA, accept: "text/html,application/xhtml+xml" },
-    redirect: "follow",
     signal: deadline(signal),
   });
 
@@ -37,7 +37,7 @@ async function readDirect(url: string, signal?: AbortSignal): Promise<PageFetch>
     return { url, ok: false, text: "", error: `The site answered ${res.status}.` };
   }
 
-  const body = await res.text();
+  const body = await readCapped(res);
   if (/^\s*[[{]/.test(body)) return { url, ok: true, text: body.slice(0, SOURCE_CHARS) };
 
   const { title, text } = await extractText(body, url);
@@ -59,7 +59,7 @@ async function readViaJina(url: string, key: string, signal?: AbortSignal): Prom
     signal: deadline(signal),
   });
 
-  const text = await res.text();
+  const text = await readCapped(res);
   if (!res.ok) {
     return { url, ok: false, text: "", error: `The reader service answered ${res.status}.` };
   }
