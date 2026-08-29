@@ -1,4 +1,6 @@
+# Its postinstall only prints a spinner demo to the terminal, and dist ships
+# prebuilt. Left unanswered, pnpm treats the skipped script as a build failure.
 allowBuilds:
-  unicode-animations: set this to true or false
+  unicode-animations: false
 patchedDependencies:
   "@assistant-ui/tap@0.9.15": patches/@assistant-ui__tap@0.9.15.patch
