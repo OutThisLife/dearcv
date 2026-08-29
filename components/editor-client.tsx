@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 
+import { EditorLoading } from "@/components/editor-loading";
+
 /**
  * A stored thread renders in the browser only. The resume stores are module
  * singletons, so seeding them while rendering on the server would let one
@@ -9,4 +11,5 @@ import dynamic from "next/dynamic";
  */
 export const EditorClient = dynamic(() => import("@/components/editor").then((m) => m.Editor), {
   ssr: false,
+  loading: EditorLoading,
 });

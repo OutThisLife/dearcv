@@ -16,7 +16,7 @@ export function ResumePane() {
   const saveUrl = isEmptyResume(doc) ? originalUrl : previewUrl;
 
   return (
-    <section className="bg-background flex min-h-0 min-w-0 flex-1 flex-col">
+    <>
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 px-4">
         <p className="text-muted-foreground min-w-0 truncate text-xs">
           {sourceName || "Your resume"}
@@ -47,6 +47,6 @@ export function ResumePane() {
       </header>
 
       <ResumePreview />
-    </section>
+    </>
   );
 }

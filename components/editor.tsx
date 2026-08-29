@@ -3,6 +3,7 @@
 import type { UIMessage } from "ai";
 import { useState } from "react";
 import { Assistant } from "@/components/assistant";
+import { EditorShell } from "@/components/editor-shell";
 import { PdfDropZone } from "@/components/pdf-drop-zone";
 import { ResumePane } from "@/components/resume-pane";
 import { ThreadSync } from "@/components/thread-sync";
@@ -33,12 +34,7 @@ export function Editor({ seed }: { seed: ThreadSeed }) {
   return (
     <PdfDropZone>
       <ThreadSync />
-      <main className="flex h-dvh flex-col lg:flex-row">
-        <div className="bg-sidebar flex min-h-0 w-full flex-1 flex-col lg:w-[min(28rem,42%)] lg:flex-none">
-          <Assistant />
-        </div>
-        <ResumePane />
-      </main>
+      <EditorShell sidebar={<Assistant />} pane={<ResumePane />} />
     </PdfDropZone>
   );
 }
