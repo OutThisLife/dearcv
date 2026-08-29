@@ -15,6 +15,8 @@ const SETTLE_MS = 800;
 export function ThreadSync() {
   const id = useThreadStore((s) => s.id);
   const addressed = useThreadStore((s) => s.addressed);
+  const file = useResumeStore((s) => s.file);
+  const pdfUrl = useResumeStore((s) => s.pdfUrl);
 
   // Swapping the URL under a live thread would remount the tree and drop the
   // conversation, so it goes through history directly rather than the router.
@@ -24,13 +26,13 @@ export function ThreadSync() {
     if (window.location.pathname !== url) window.history.replaceState(null, "", url);
   }, [addressed, id]);
 
-  // Held back until the thread is worth keeping, so a PDF dropped in and then
-  // abandoned never reaches storage.
+  // Waits for the thread to be worth keeping, so a PDF dropped in and then
+  // abandoned never reaches storage — but then watches for the file rather than
+  // reading it once, because it just as often arrives after the first message
+  // as before it. The object URL draws the preview throughout, which is why a
+  // PDF that never made it up still looked fine until the page was reloaded.
   useEffect(() => {
-    if (!addressed) return;
-
-    const { file, pdfUrl } = useResumeStore.getState();
-    if (!file || pdfUrl) return;
+    if (!addressed || !file || pdfUrl) return;
 
     let cancelled = false;
     void (async () => {
@@ -41,19 +43,18 @@ export function ThreadSync() {
           contentType: "application/pdf",
           handleUploadUrl: "/api/blob/upload",
         });
-        // The local blob: URL still draws the preview, so a failure here costs
-        // the reload, not the session.
         if (!cancelled) useResumeStore.getState().setPdfUrl(url);
-      } catch {
-        // Storage isn't configured, or the upload was refused. Either way the
-        // thread still works for as long as the tab is open.
+      } catch (error) {
+        // Costs the reload, not the session: the thread still works for as long
+        // as the tab is open. Worth saying out loud either way.
+        console.error("Couldn't store that PDF.", error);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [addressed]);
+  }, [addressed, file, pdfUrl]);
 
   useEffect(() => {
     if (!addressed || !id) return;

@@ -19,6 +19,9 @@ type ResumeState = {
   pdfUrl: string | null;
   previewUrl: string | null;
   ingesting: boolean;
+  /** Something went wrong with the file itself, in words for the person. */
+  error: string | null;
+  setError: (error: string | null) => void;
   setPdfUrl: (url: string | null) => void;
   replaceContent: (doc: ResumeDoc) => void;
   patchDoc: (patch: Partial<ResumeDoc>) => void;
@@ -45,6 +48,7 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
   pdfUrl: null,
   previewUrl: null,
   ingesting: false,
+  error: null,
   setPdfUrl: (pdfUrl) => set({ pdfUrl }),
   // Content rebuilds keep the live look. Theme only moves via update_theme,
   // except the first write onto a blank document.
@@ -107,10 +111,14 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
       file,
       sourceName: file.name,
       sourceText: text,
+      // Whatever is in storage belongs to the PDF they just replaced, so it
+      // stops standing for this one and the new file gets uploaded in its turn.
+      pdfUrl: null,
     }),
   setOriginalUrl: (originalUrl) => set({ originalUrl }),
   setPreviewUrl: (previewUrl) => set({ previewUrl }),
   setIngesting: (ingesting) => set({ ingesting }),
+  setError: (error) => set({ error }),
   resetBlank: () => {
     const { originalUrl } = get();
     if (originalUrl?.startsWith("blob:")) URL.revokeObjectURL(originalUrl);
@@ -121,6 +129,7 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
       file: null,
       originalUrl: null,
       pdfUrl: null,
+      error: null,
     });
   },
 }));
