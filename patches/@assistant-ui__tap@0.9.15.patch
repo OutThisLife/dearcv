@@ -1,0 +1,16 @@
+diff --git a/dist/react-shim/useReactEffectEvent.js b/dist/react-shim/useReactEffectEvent.js
+index b127eea1af571755866926885c8b035b3d6fdeff..21ccf7002af276cd92e767dafe995c208923caec 100644
+--- a/dist/react-shim/useReactEffectEvent.js
++++ b/dist/react-shim/useReactEffectEvent.js
+@@ -8,7 +8,10 @@ function useReactEffectEventShim(callback) {
+ 	});
+ 	return useCallback(((...args) => callbackRef.current(...args)), []);
+ }
+-const useReactEffectEvent = ReactRuntime.useEffectEvent ?? useReactEffectEventShim;
++// React 19.2 ships a real useEffectEvent that throws when the returned
++// function is called during render, which this package's composer trigger
++// code does. Always take the permissive shim.
++const useReactEffectEvent = useReactEffectEventShim;
+ //#endregion
+ export { useReactEffectEvent };
+ 

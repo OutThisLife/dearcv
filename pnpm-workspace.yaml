@@ -1,0 +1,4 @@
+allowBuilds:
+  unicode-animations: set this to true or false
+patchedDependencies:
+  "@assistant-ui/tap@0.9.15": patches/@assistant-ui__tap@0.9.15.patch

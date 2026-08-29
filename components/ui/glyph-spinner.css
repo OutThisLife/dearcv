@@ -1,0 +1,47 @@
+/* Compositor-only braille spinner. Frames are in the DOM; steps() scrolls them. */
+
+.glyph-spinner {
+  --glyph-spinner-frame-height: 1em;
+  display: block;
+  height: var(--glyph-spinner-frame-height, 1em);
+  overflow: hidden;
+  line-height: 1;
+}
+
+.glyph-spinner,
+.glyph-spinner * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.glyph-spinner__strip {
+  display: block;
+  will-change: transform;
+  animation: glyph-spinner-advance var(--glyph-spinner-duration, 800ms)
+    steps(var(--glyph-spinner-frames, 10)) infinite;
+}
+
+.glyph-spinner__frame {
+  display: block;
+  height: var(--glyph-spinner-frame-height, 1em);
+  overflow: hidden;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glyph-spinner__strip {
+    animation-play-state: paused;
+    will-change: auto;
+  }
+}
+
+@keyframes glyph-spinner-advance {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(
+      calc(var(--glyph-spinner-frames, 10) * -1 * var(--glyph-spinner-frame-height, 1em))
+    );
+  }
+}
