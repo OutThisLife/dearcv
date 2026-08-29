@@ -25,6 +25,22 @@ function readStored(): StoredAuth | null {
   }
 }
 
+/**
+ * Turns the key into a cookie saying which account it speaks for, so a thread
+ * can tell its owner apart from whoever else has the link. The key goes no
+ * further than the check itself. Failing leaves them anonymous — able to work,
+ * just not to claim anything — so it never blocks getting started.
+ */
+function startSession(auth: StoredAuth) {
+  return fetch("/api/auth/session", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${auth.apiKey}`,
+      "x-resume-provider": auth.provider,
+    },
+  }).catch(() => undefined);
+}
+
 type AuthState = {
   provider: LlmProvider;
   apiKey: string;
@@ -54,10 +70,12 @@ export const useAuthStore = create<AuthState>()((set) => ({
   connect: (next) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     set({ ...next, dialogOpen: false });
+    void startSession(next);
   },
   disconnect: () => {
     localStorage.removeItem(STORAGE_KEY);
     set({ apiKey: "", provider: "openrouter", via: "key" });
+    void fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
   },
   openDialog: () => set({ dialogOpen: true }),
   closeDialog: () => set({ dialogOpen: false, pendingSend: false }),
@@ -69,6 +87,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
       ...stored,
       hydrated: true,
     });
+    // A cookie expires, gets cleared, or was never minted on this device. The
+    // key in localStorage is what can produce another one.
+    if (stored) void startSession(stored);
   },
   setServerConfigured: (serverConfigured) => set({ serverConfigured }),
 }));

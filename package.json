@@ -1,6 +1,5 @@
 {
   "name": "dearcv",
-  "packageManager": "pnpm@11.23.0",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -29,6 +28,7 @@
     "clsx": "^2.1.1",
     "defuddle": "^0.19.3",
     "html-to-text": "^10.0.1",
+    "jose": "^6.2.10",
     "lucide-react": "^1.33.0",
     "next": "^16.3.2",
     "next-themes": "^0.4.6",
@@ -54,5 +54,6 @@
     "oxlint": "^1.79.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
-  }
+  },
+  "packageManager": "pnpm@11.23.0"
 }

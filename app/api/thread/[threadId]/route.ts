@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canPersist, isThreadId, saveResume } from "@/lib/db";
 import { resumeDocSchema } from "@/lib/resume/schema";
+import { readViewer } from "@/lib/session";
 
 const body = z.object({
   doc: resumeDocSchema.nullable(),
@@ -28,6 +29,10 @@ export async function PUT(req: Request, ctx: { params: Promise<{ threadId: strin
     return Response.json({ error: "Bad resume payload." }, { status: 400 });
   }
 
-  await saveResume(threadId, parsed.data);
+  const saved = await saveResume(threadId, parsed.data, await readViewer());
+  if (!saved) {
+    return Response.json({ error: "That thread belongs to another key." }, { status: 403 });
+  }
+
   return Response.json({ saved: true });
 }

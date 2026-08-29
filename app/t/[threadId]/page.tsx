@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { EditorClient } from "@/components/editor-client";
-import { isThreadId, loadThread } from "@/lib/db";
+import { LockedThread } from "@/components/locked-thread";
+import { isThreadId, loadThread, mayRead } from "@/lib/db";
+import { readViewer } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,9 @@ export default async function ThreadPage({ params }: { params: Promise<{ threadI
   if (!isThreadId(threadId)) notFound();
 
   const thread = await loadThread(threadId);
+  // Nothing about the thread reaches the browser on a refusal, not even that it
+  // has anything in it.
+  if (thread && !mayRead(thread, await readViewer())) return <LockedThread />;
 
   return (
     <EditorClient

@@ -12,6 +12,7 @@ import { isThreadId, saveMessages } from "@/lib/db";
 import { createModel, llmErrorMessage, readLlmRequest } from "@/lib/llm";
 import { chatPrompt } from "@/lib/prompts";
 import { fetchReadablePage } from "@/lib/resume/fetch-page";
+import { readViewer } from "@/lib/session";
 
 export const maxDuration = 60;
 
@@ -43,6 +44,10 @@ export async function POST(req: Request) {
   if (!Array.isArray(messages)) {
     return Response.json({ error: "No messages sent." }, { status: 400 });
   }
+
+  // Read now rather than in onFinish, which runs once the response is already
+  // on its way out and no longer has a request to read cookies from.
+  const viewer = await readViewer();
 
   const llm = createModel({
     apiKey,
@@ -90,7 +95,7 @@ export async function POST(req: Request) {
       if (!isThreadId(threadId)) return;
       // Nothing downstream can retry this, so a failure has to at least be
       // findable — silently losing the turn is how this went unnoticed before.
-      void saveMessages(threadId, history).catch((error: unknown) => {
+      void saveMessages(threadId, history, viewer).catch((error: unknown) => {
         console.error(`Couldn't save thread ${threadId}.`, error);
       });
     },
