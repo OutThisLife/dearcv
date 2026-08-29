@@ -1,5 +1,6 @@
 {
   "name": "dearcv",
+  "packageManager": "pnpm@11.23.0",
   "version": "0.1.0",
   "private": true,
   "scripts": {
