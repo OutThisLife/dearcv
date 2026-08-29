@@ -16,34 +16,27 @@ const leaf = "#d4657f";
 
 export default function OpenGraphImage() {
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#efe6d4",
-          backgroundImage:
-            "radial-gradient(circle at 50% 42%, #f5eee4 0%, #efe6d4 42%, #e4d4be 100%)",
-        }}
-      >
-        <svg viewBox={MARK_VIEWBOX} width="128" height="186">
-          <path d={MARK_PATH} fill={brand} fillRule="evenodd" />
-        </svg>
-        <svg
-          viewBox={WORDMARK_VIEWBOX}
-          width="420"
-          height="100"
-          style={{ marginTop: 36 }}
-        >
-          <path d={WORDMARK_PATH} fill={brand} fillRule="evenodd" />
-          <path d={WORDMARK_LEAF_PATH} fill={leaf} />
-        </svg>
-      </div>
-    ),
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#efe6d4",
+        backgroundImage:
+          "radial-gradient(circle at 50% 42%, #f5eee4 0%, #efe6d4 42%, #e4d4be 100%)",
+      }}
+    >
+      <svg viewBox={MARK_VIEWBOX} width="128" height="186">
+        <path d={MARK_PATH} fill={brand} fillRule="evenodd" />
+      </svg>
+      <svg viewBox={WORDMARK_VIEWBOX} width="420" height="100" style={{ marginTop: 36 }}>
+        <path d={WORDMARK_PATH} fill={brand} fillRule="evenodd" />
+        <path d={WORDMARK_LEAF_PATH} fill={leaf} />
+      </svg>
+    </div>,
     { ...size },
   );
 }

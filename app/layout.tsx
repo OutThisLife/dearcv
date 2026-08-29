@@ -22,7 +22,17 @@ const ibmPlexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+/**
+ * Vercel sets VERCEL_PROJECT_PRODUCTION_URL on every deployment, so previews
+ * and production both resolve their own images rather than pointing at
+ * whatever localhost Next falls back to.
+ */
+const origin = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(origin),
   title: "DearCV",
   description: "Chat with a live PDF resume.",
   openGraph: {
