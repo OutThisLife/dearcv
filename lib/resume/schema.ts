@@ -107,22 +107,18 @@ export const blankResume = (): ResumeDoc => ({
   ],
 });
 
-/** The stub text a new document opens with, which nobody typed. */
-const stockBasics = new Set(
-  Object.values(blankResume().basics).filter((value) => typeof value === "string"),
-);
-
 /**
- * Whether there is anything of theirs in here yet. It decides whether the
- * preview draws this document or the PDF behind it, so the header has to
- * count: reading only the sections meant a name they had just changed left the
- * screen showing the old one, and the reply saying otherwise read as a lie.
+ * Whether this document has anything worth drawing yet. A header on its own
+ * does not count, deliberately: with an upload behind it the PDF is the better
+ * picture of the same person, and a page holding nothing but a name reads as
+ * the resume having been thrown away.
+ *
+ * That leaves a document that has been touched but not filled in looking
+ * untouched, which is only safe because a narrow edit can no longer land on
+ * one — the editing tools refuse until the upload has been carried across.
  */
 export function isEmptyResume(doc: ResumeDoc): boolean {
-  const { links, ...text } = doc.basics;
-  if (links.length > 0) return false;
-  if (Object.values(text).some((value) => value?.trim() && !stockBasics.has(value))) return false;
-
+  if (doc.basics.summary?.trim()) return false;
   return doc.sections.every((section) => section.items.length === 0 && !section.lines?.length);
 }
 
