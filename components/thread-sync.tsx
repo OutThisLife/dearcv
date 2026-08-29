@@ -16,7 +16,7 @@ export function ThreadSync() {
   const id = useThreadStore((s) => s.id);
   const addressed = useThreadStore((s) => s.addressed);
   const file = useResumeStore((s) => s.file);
-  const pdfUrl = useResumeStore((s) => s.pdfUrl);
+  const pdfPath = useResumeStore((s) => s.pdfPath);
 
   // Swapping the URL under a live thread would remount the tree and drop the
   // conversation, so it goes through history directly rather than the router.
@@ -32,40 +32,58 @@ export function ThreadSync() {
   // as before it. The object URL draws the preview throughout, which is why a
   // PDF that never made it up still looked fine until the page was reloaded.
   useEffect(() => {
-    if (!addressed || !file || pdfUrl) return;
+    if (!addressed || !id || !file || pdfPath) return;
 
     let cancelled = false;
     void (async () => {
       try {
-        const { upload } = await import("@vercel/blob/client");
-        const { url } = await upload(file.name, file, {
-          access: "public",
-          contentType: "application/pdf",
-          handleUploadUrl: "/api/blob/upload",
+        // Two steps, and the file only travels on the second: the server says
+        // where it may go, then the browser puts it there directly. Nothing of
+        // ours needs to be in the page for that — the signed URL is the whole
+        // credential, and it is good for this one path once.
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ threadId: id }),
         });
-        if (!cancelled) useResumeStore.getState().setPdfUrl(url);
+        if (!res.ok) throw new Error(`upload url: ${res.status}`);
+
+        const { path, signedUrl } = (await res.json()) as { path: string; signedUrl: string };
+        const put = await fetch(signedUrl, {
+          method: "PUT",
+          headers: { "content-type": "application/pdf" },
+          body: file,
+        });
+        if (!put.ok) throw new Error(`upload: ${put.status}`);
+
+        if (!cancelled) useResumeStore.getState().setPdfPath(path);
       } catch (error) {
         // Costs the reload, not the session: the thread still works for as long
         // as the tab is open. Worth saying out loud either way.
         console.error("Couldn't store that PDF.", error);
+        if (!cancelled) {
+          useResumeStore
+            .getState()
+            .setError("Couldn't store your original PDF, so it won't survive a reload.");
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [addressed, file, pdfUrl]);
+  }, [addressed, id, file, pdfPath]);
 
   useEffect(() => {
     if (!addressed || !id) return;
 
     let timer = 0;
     const save = () => {
-      const { doc, sourceText, sourceName, pdfUrl } = useResumeStore.getState();
+      const { doc, sourceText, sourceName, pdfPath } = useResumeStore.getState();
       void fetch(`/api/thread/${id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ doc, sourceText, sourceName, pdfUrl }),
+        body: JSON.stringify({ doc, sourceText, sourceName, pdfPath }),
         keepalive: true,
       }).catch(() => undefined);
     };

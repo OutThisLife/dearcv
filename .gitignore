@@ -2,6 +2,10 @@
 
 # dependencies
 /node_modules
+
+# Scratch the Supabase CLI keeps per machine — which project is linked, and
+# what version it last saw.
+/supabase/.temp
 /.pnpm-store
 /.pnp
 .pnp.*

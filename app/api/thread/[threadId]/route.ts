@@ -19,29 +19,29 @@ const readJson = (raw: string): unknown => {
 };
 
 /**
- * Only ever one of our own blobs. `z.url()` would take `javascript:` just as
- * happily, and this value comes back out as the source of the preview.
+ * A path we could have written, under the thread being saved. Bound to that
+ * thread rather than merely well-formed, because the read route trusts this
+ * value to decide which file it signs — pointing a thread of your own at
+ * someone else's path would otherwise hand you their resume.
  */
-const storedFile = z
-  .string()
-  .max(512)
-  .refine((value) => {
-    try {
-      const { protocol, hostname } = new URL(value);
-      return protocol === "https:" && hostname.endsWith(".public.blob.vercel-storage.com");
-    } catch {
-      return false;
-    }
-  }, "Not a stored file.");
+const storedFile = (threadId: string) =>
+  z
+    .string()
+    .max(128)
+    .refine(
+      (value) => new RegExp(`^${threadId}/[0-9a-f-]{36}\\.pdf$`).test(value),
+      "Not a file of this thread's.",
+    );
 
-const body = z.object({
-  doc: resumeDocSchema.nullable(),
-  // The same ceiling the prompt trims to, enforced again here because the
-  // browser doing the trimming is not the one we have to worry about.
-  sourceText: z.string().max(SOURCE_CHARS).default(""),
-  sourceName: z.string().max(256).default(""),
-  pdfUrl: storedFile.nullable().default(null),
-});
+const body = (threadId: string) =>
+  z.object({
+    doc: resumeDocSchema.nullable(),
+    // The same ceiling the prompt trims to, enforced again here because the
+    // browser doing the trimming is not the one we have to worry about.
+    sourceText: z.string().max(SOURCE_CHARS).default(""),
+    sourceName: z.string().max(256).default(""),
+    pdfPath: storedFile(threadId).nullable().default(null),
+  });
 
 /**
  * The resume half of a thread. The chat half is written by the chat route as
@@ -68,7 +68,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ threadId: strin
     return Response.json({ error: "That resume is too big." }, { status: 413 });
   }
 
-  const parsed = body.safeParse(readJson(raw));
+  const parsed = body(threadId).safeParse(readJson(raw));
   if (!parsed.success) {
     return Response.json({ error: "Bad resume payload." }, { status: 400 });
   }

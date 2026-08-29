@@ -15,14 +15,16 @@ type ResumeState = {
   /** The upload itself, held until the thread is worth storing it against. */
   file: File | null;
   originalUrl: string | null;
-  /** Where the upload lives once stored, as opposed to the local blob: URL. */
-  pdfUrl: string | null;
+  /** Where the upload sits in the bucket, as opposed to the local blob: URL.
+   *  Not a URL of its own: the bucket is private, so it is read through a
+   *  route that signs a link after checking whose thread it is. */
+  pdfPath: string | null;
   previewUrl: string | null;
   ingesting: boolean;
   /** Something went wrong with the file itself, in words for the person. */
   error: string | null;
   setError: (error: string | null) => void;
-  setPdfUrl: (url: string | null) => void;
+  setPdfPath: (path: string | null) => void;
   replaceContent: (doc: ResumeDoc) => void;
   patchDoc: (patch: Partial<ResumeDoc>) => void;
   upsertSection: (section: ResumeSection) => void;
@@ -45,11 +47,11 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
   sourceName: "",
   file: null,
   originalUrl: null,
-  pdfUrl: null,
+  pdfPath: null,
   previewUrl: null,
   ingesting: false,
   error: null,
-  setPdfUrl: (pdfUrl) => set({ pdfUrl }),
+  setPdfPath: (pdfPath) => set({ pdfPath }),
   // Content rebuilds keep the live look. Theme only moves via update_theme,
   // except the first write onto a blank document.
   replaceContent: (doc) =>
@@ -113,7 +115,7 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
       sourceText: text,
       // Whatever is in storage belongs to the PDF they just replaced, so it
       // stops standing for this one and the new file gets uploaded in its turn.
-      pdfUrl: null,
+      pdfPath: null,
     }),
   setOriginalUrl: (originalUrl) => set({ originalUrl }),
   setPreviewUrl: (previewUrl) => set({ previewUrl }),
@@ -128,18 +130,23 @@ export const useResumeStore = create<ResumeState>()((set, get) => ({
       sourceName: "",
       file: null,
       originalUrl: null,
-      pdfUrl: null,
+      pdfPath: null,
       error: null,
     });
   },
 }));
 
 export type SeededResume = {
+  /** Absent for a new thread, which is given its id in the browser. */
+  id?: string;
   doc?: ResumeDoc | null;
   sourceText?: string;
   sourceName?: string;
-  pdfUrl?: string | null;
+  pdfPath?: string | null;
 };
+
+/** A private file is read through the thread that owns it, never directly. */
+export const storedPdfUrl = (threadId: string) => `/api/thread/${threadId}/pdf`;
 
 /** Fills the store from a stored thread before anything renders against it. */
 export function seedResume(seed: SeededResume) {
@@ -147,9 +154,9 @@ export function seedResume(seed: SeededResume) {
     doc: seed.doc ?? blankResume(),
     sourceText: seed.sourceText ?? "",
     sourceName: seed.sourceName ?? "",
-    // A stored upload is served from its own URL, so it is both the thing to
-    // draw and the thing to keep.
-    originalUrl: seed.pdfUrl ?? null,
-    pdfUrl: seed.pdfUrl ?? null,
+    // Drawn through the route rather than from storage, which is what keeps
+    // the file behind the same check as the thread it belongs to.
+    originalUrl: seed.id && seed.pdfPath ? storedPdfUrl(seed.id) : null,
+    pdfPath: seed.pdfPath ?? null,
   });
 }

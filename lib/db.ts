@@ -1,13 +1,20 @@
-import { neon } from "@neondatabase/serverless";
 import type { UIMessage } from "ai";
+import postgres from "postgres";
 import { resumeDocSchema, type ResumeDoc } from "@/lib/resume/schema";
 
 /**
  * Persistence is optional. Without DATABASE_URL the app runs exactly as it did
  * before — everything lives in memory and a reload starts over — so local work
  * and previews don't need a database standing behind them.
+ *
+ * Through the transaction pooler, which is the only way in that works from a
+ * function: the direct host has no A record, and one connection per invocation
+ * would exhaust the limit under any real traffic. Pooling in that mode hands
+ * out a different backend per statement, so prepared statements are off.
  */
-const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
+const sql = process.env.DATABASE_URL
+  ? postgres(process.env.DATABASE_URL, { prepare: false, max: 1, idle_timeout: 20 })
+  : null;
 
 export const canPersist = () => sql !== null;
 
@@ -21,7 +28,9 @@ export type StoredThread = {
   doc: ResumeDoc | null;
   sourceText: string;
   sourceName: string;
-  pdfUrl: string | null;
+  /** Where the PDF sits in the bucket. Not a URL: the bucket is private, so
+   *  every read is signed at the moment it is asked for. */
+  pdfPath: string | null;
   messages: UIMessage[];
   /** Null for a thread that only its link protects. */
   ownerId: string | null;
@@ -31,7 +40,7 @@ export async function loadThread(id: string): Promise<StoredThread | null> {
   if (!sql || !isThreadId(id)) return null;
 
   const [row] = await sql`
-    select doc, source_text, source_name, pdf_url, messages, owner_id
+    select doc, source_text, source_name, pdf_path, messages, owner_id
     from threads where id = ${id}
   `;
   if (!row) return null;
@@ -44,7 +53,7 @@ export async function loadThread(id: string): Promise<StoredThread | null> {
     doc: doc.success ? doc.data : null,
     sourceText: row.source_text ?? "",
     sourceName: row.source_name ?? "",
-    pdfUrl: row.pdf_url ?? null,
+    pdfPath: row.pdf_path ?? null,
     messages: Array.isArray(row.messages) ? (row.messages as UIMessage[]).map(identify) : [],
     ownerId: row.owner_id ?? null,
   };
@@ -76,20 +85,36 @@ export const mayRead = (thread: StoredThread, viewer: string | null) =>
 /** The resume half, written by the editor as it changes. */
 export async function saveResume(
   id: string,
-  resume: Pick<StoredThread, "doc" | "sourceText" | "sourceName" | "pdfUrl">,
+  resume: Pick<StoredThread, "doc" | "sourceText" | "sourceName" | "pdfPath">,
   owner: string | null,
 ) {
   if (!sql || !isThreadId(id)) return false;
 
   const rows = await sql`
-    insert into threads (id, doc, source_text, source_name, pdf_url, owner_id)
-    values (${id}, ${JSON.stringify(resume.doc)}, ${resume.sourceText},
-            ${resume.sourceName}, ${resume.pdfUrl}, ${owner})
+    insert into threads (id, doc, source_text, source_name, pdf_path, owner_id)
+    values (${id}, ${sql.json(resume.doc)}, ${resume.sourceText},
+            ${resume.sourceName}, ${resume.pdfPath}, ${owner})
     on conflict (id) do update set
       doc = excluded.doc,
       source_text = excluded.source_text,
       source_name = excluded.source_name,
-      pdf_url = excluded.pdf_url,
+      pdf_path = excluded.pdf_path,
+      updated_at = now()
+    where threads.owner_id is null or threads.owner_id = excluded.owner_id
+    returning id
+  `;
+  return rows.length > 0;
+}
+
+/** The chat half, written server-side once a turn finishes streaming. */
+export async function saveMessages(id: string, messages: UIMessage[], owner: string | null) {
+  if (!sql || !isThreadId(id)) return false;
+
+  const rows = await sql`
+    insert into threads (id, messages, owner_id)
+    values (${id}, ${sql.json(messages as unknown as postgres.JSONValue)}, ${owner})
+    on conflict (id) do update set
+      messages = excluded.messages,
       updated_at = now()
     where threads.owner_id is null or threads.owner_id = excluded.owner_id
     returning id
@@ -106,7 +131,7 @@ export async function staleThreads(days: number, limit: number) {
   if (!sql) return [];
 
   const rows = await sql`
-    select id, pdf_url
+    select id, pdf_path
     from threads
     where updated_at < now() - make_interval(days => ${days})
     order by updated_at
@@ -114,7 +139,7 @@ export async function staleThreads(days: number, limit: number) {
   `;
   return rows.map((row) => ({
     id: row.id as string,
-    pdfUrl: (row.pdf_url ?? null) as string | null,
+    pdfPath: (row.pdf_path ?? null) as string | null,
   }));
 }
 
@@ -127,28 +152,12 @@ export async function forgetThreads(ids: string[]) {
 
 /**
  * Which of these files a thread still points at. Asked the other way round —
- * every url we know of — the answer grows with the table; this way the question
- * stays the size of the page being swept.
+ * every path we know of — the answer grows with the table; this way the
+ * question stays the size of the page being swept.
  */
-export async function knownPdfUrls(urls: string[]) {
-  if (!sql || urls.length === 0) return new Set<string>();
+export async function knownPdfPaths(paths: string[]) {
+  if (!sql || paths.length === 0) return new Set<string>();
 
-  const rows = await sql`select pdf_url from threads where pdf_url = any(${urls}::text[])`;
-  return new Set(rows.map((row) => row.pdf_url as string));
-}
-
-/** The chat half, written server-side once a turn finishes streaming. */
-export async function saveMessages(id: string, messages: UIMessage[], owner: string | null) {
-  if (!sql || !isThreadId(id)) return false;
-
-  const rows = await sql`
-    insert into threads (id, messages, owner_id)
-    values (${id}, ${JSON.stringify(messages)}, ${owner})
-    on conflict (id) do update set
-      messages = excluded.messages,
-      updated_at = now()
-    where threads.owner_id is null or threads.owner_id = excluded.owner_id
-    returning id
-  `;
-  return rows.length > 0;
+  const rows = await sql`select pdf_path from threads where pdf_path = any(${paths}::text[])`;
+  return new Set(rows.map((row) => row.pdf_path as string));
 }
