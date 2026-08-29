@@ -53,9 +53,12 @@ export function Assistant() {
       headers: () => authHeaders(),
       body: () => {
         const { doc, sourceText } = useResumeStore.getState();
-        // The upload only matters until it becomes the document.
+        // The transport overwrites `id` with its own thread-list id, so the
+        // thread to save the turn under has to travel under its own name.
         return {
+          threadId: useThreadStore.getState().id,
           doc,
+          // The upload only matters until it becomes the document.
           sourceText: isEmptyResume(doc) ? sourceText : "",
         };
       },

@@ -26,12 +26,14 @@ export async function POST(req: Request) {
 
   const {
     id,
+    threadId,
     messages,
     tools,
     doc,
     sourceText,
   }: {
     id?: string;
+    threadId?: string;
     messages?: UIMessage[];
     tools?: Record<string, { description?: string; parameters: JSONSchema7 }>;
     doc?: unknown;
@@ -85,7 +87,12 @@ export async function POST(req: Request) {
     // reload rebuilds the same thread rather than a near-copy of it.
     originalMessages: messages,
     onFinish: ({ messages: history }) => {
-      if (isThreadId(id)) void saveMessages(id, history);
+      if (!isThreadId(threadId)) return;
+      // Nothing downstream can retry this, so a failure has to at least be
+      // findable — silently losing the turn is how this went unnoticed before.
+      void saveMessages(threadId, history).catch((error: unknown) => {
+        console.error(`Couldn't save thread ${threadId}.`, error);
+      });
     },
   });
 }
