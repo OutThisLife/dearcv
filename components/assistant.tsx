@@ -10,6 +10,7 @@ import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useEffect, useState } from "react";
 import { Thread } from "@/components/assistant-ui/thread";
 import { AuthDialog } from "@/components/auth-dialog";
+import { ComposerDraft } from "@/components/composer-draft";
 import { DearCvWordmark } from "@/components/dearcv-wordmark";
 import { ResumeTools } from "@/components/resume-tools";
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,13 @@ export function Assistant() {
     id: thread.id,
     messages: thread.initialMessages,
     adapters: { dictation, attachments },
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    // Continuing the tool loop is for turns taken here and now. Every saved
+    // thread ends on a finished tool call, which this reads as a loop left
+    // hanging — so reopening one would fire a turn nobody asked for, before
+    // the key has even been read back out of storage.
+    sendAutomaticallyWhen: ({ messages }) =>
+      messages.length > thread.initialMessages.length &&
+      lastAssistantMessageIsCompleteWithToolCalls({ messages }),
     transport: new AssistantChatTransport({
       api: "/api/chat",
       headers: () => authHeaders(),
@@ -70,6 +77,7 @@ export function Assistant() {
       <AuthBootstrap />
       <ResumeTools />
       <AddressThread />
+      <ComposerDraft />
       <AuthDialog />
       <div className="flex h-full min-h-0 flex-col">
         <ChatHeader />
@@ -87,15 +95,20 @@ export function Assistant() {
 
 /**
  * An empty thread is not worth a URL or a row — most visits never send
- * anything. The first message is what makes it a thing to come back to.
+ * anything. Sending is not enough either: a turn that dies on a rejected key
+ * or a dropped connection would still have taken the URL, written a row, and
+ * pushed the PDF into storage. The model answering is the first moment any of
+ * that is worth keeping.
  */
 function AddressThread() {
-  const started = useAuiState((s) => s.thread.messages.length > 0);
+  const answered = useAuiState((s) =>
+    s.thread.messages.some((message) => message.role === "assistant" && message.content.length > 0),
+  );
   const address = useThreadStore((s) => s.address);
 
   useEffect(() => {
-    if (started) address();
-  }, [started, address]);
+    if (answered) address();
+  }, [answered, address]);
 
   return null;
 }
