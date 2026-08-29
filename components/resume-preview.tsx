@@ -1,182 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { usePdfPages } from "@/hooks/use-pdf-pages";
+import { usePdfRender } from "@/hooks/use-pdf-render";
 import { PdfFileIcon } from "@/components/pdf-file-icon";
+import { ResumeMarks } from "@/components/resume-marks";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Thinking } from "@/components/ui/thinking";
 import { pickPdf } from "@/lib/resume/ingest";
-import { ResumePdf } from "@/lib/resume/pdf-document";
-import { readPdfBoxes, type PdfBoxes } from "@/lib/resume/pdf-boxes";
 import { isEmptyResume } from "@/lib/resume/schema";
-import { useMarksStore } from "@/lib/store/marks";
 import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
-
-/** Where a rendered page sits in the scroller, and its PDF-point-to-pixel scale. */
-type PageBox = { top: number; scale: number };
 
 export function ResumePreview() {
   const doc = useResumeStore((s) => s.doc);
   const touched = useResumeStore((s) => s.touched);
   const originalUrl = useResumeStore((s) => s.originalUrl);
   const previewUrl = useResumeStore((s) => s.previewUrl);
-  const setPreviewUrl = useResumeStore((s) => s.setPreviewUrl);
   const ingesting = useResumeStore((s) => s.ingesting);
-  const marks = useMarksStore((s) => s.marks);
-  const clearMarks = useMarksStore((s) => s.clearMarks);
-  const generation = useRef(0);
-  const pagesRef = useRef<HTMLDivElement>(null);
-  const widthRef = useRef(0);
-  const [boxes, setBoxes] = useState<PdfBoxes>({});
-  const [pages, setPages] = useState<PageBox[]>([]);
 
-  const [failed, setFailed] = useState(false);
+  const { boxes, failed } = usePdfRender(doc);
 
-  // Their actual file, for as long as it is still what the document says.
-  // The background transcription fills the document without flipping
-  // `touched`, so uploading alone never swaps the real PDF for our redraw —
-  // only an edit does.
+  // Their actual file, for as long as it is still what the document says. The
+  // background transcription fills the document without flipping `touched`, so
+  // uploading alone never swaps the real PDF for our redraw — only an edit does.
   const renderUrl = originalUrl && !touched ? originalUrl : previewUrl;
+
+  const { hostRef, pages } = usePdfPages(renderUrl);
+
   // Nothing to show and nothing coming. Reading this off renderUrl alone put
   // the whole drop zone back on screen while the first edit was still being
   // drawn, at the exact moment the agent said it had changed something.
   const empty = isEmptyResume(doc) && !originalUrl && !ingesting;
-
-  useEffect(() => {
-    const id = ++generation.current;
-    let objectUrl = "";
-
-    setFailed(false);
-
-    if (isEmptyResume(doc)) {
-      setPreviewUrl(null);
-      setBoxes({});
-      clearMarks();
-      return;
-    }
-
-    const timer = window.setTimeout(async () => {
-      try {
-        const { pdf } = await import("@react-pdf/renderer");
-        // The laid-out tree arrives on the same pass that makes the blob, so
-        // the geometry always describes the paper we are about to show.
-        let laidOut: PdfBoxes = {};
-        const blob = await pdf(
-          <ResumePdf
-            doc={doc}
-            onRender={(params) => {
-              laidOut = readPdfBoxes(
-                (params as { _INTERNAL__LAYOUT__DATA_?: unknown })._INTERNAL__LAYOUT__DATA_,
-              );
-            }}
-          />,
-        ).toBlob();
-        if (generation.current !== id) return;
-        objectUrl = URL.createObjectURL(blob);
-        setBoxes(laidOut);
-        setPreviewUrl(objectUrl);
-      } catch (error) {
-        // Left unhandled this waited forever on a page that was never coming,
-        // while the transcript happily said the edit had landed.
-        console.error("Couldn't draw the resume.", error);
-        if (generation.current === id) setFailed(true);
-      }
-    }, 80);
-
-    return () => {
-      window.clearTimeout(timer);
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [doc, setPreviewUrl, clearMarks]);
-
-  useEffect(() => {
-    const host = pagesRef.current;
-    if (!renderUrl || !host) return;
-
-    let cancelled = false;
-    let timer = 0;
-
-    const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-
-    const paint = async () => {
-      const width = host.clientWidth;
-      if (width < rem() * 0.5) return;
-      widthRef.current = width;
-
-      const { getDocumentProxy } = await import("unpdf");
-      const bytes = new Uint8Array(await (await fetch(renderUrl)).arrayBuffer());
-      if (cancelled) return;
-
-      const pdf = await getDocumentProxy(bytes);
-      if (cancelled) {
-        await pdf.cleanup();
-        return;
-      }
-
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const points: number[] = [];
-      // Painted off-document and swapped in at the end. Clearing the host up
-      // front emptied the pane on every keystroke-sized edit and let the pages
-      // pop back one at a time, which is what made an edit feel like a reload.
-      const painted: HTMLCanvasElement[] = [];
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const base = page.getViewport({ scale: 1 });
-        const viewport = page.getViewport({ scale: (width * dpr) / base.width });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        canvas.style.width = "100%";
-        canvas.style.height = "auto";
-        canvas.style.display = "block";
-        const ctx = canvas.getContext("2d");
-        if (!ctx) continue;
-        await page.render({ canvasContext: ctx, canvas, viewport }).promise;
-        if (cancelled) break;
-        points.push(base.width);
-        painted.push(canvas);
-      }
-
-      await pdf.cleanup();
-      if (cancelled) return;
-
-      host.replaceChildren(...painted);
-
-      // Measure the painted canvases rather than adding up heights, so the
-      // marks cannot drift a subpixel per page down a long resume.
-      setPages(
-        Array.from(host.children).map((child, i) => {
-          const canvas = child as HTMLCanvasElement;
-          return { top: canvas.offsetTop, scale: canvas.clientWidth / points[i] };
-        }),
-      );
-    };
-
-    // A quick second edit revokes the blob this pass is still fetching. That
-    // is expected — a newer paint is already on its way — but unhandled it
-    // rejected and left whatever was on screen standing as the current resume.
-    const repaint = () =>
-      void paint().catch((error) => {
-        if (!cancelled) console.error("Couldn't paint the resume.", error);
-      });
-
-    repaint();
-
-    const ro = new ResizeObserver(() => {
-      if (Math.abs(host.clientWidth - widthRef.current) < rem() * 0.125) return;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(repaint, 80);
-    });
-    ro.observe(host);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      ro.disconnect();
-    };
-  }, [renderUrl]);
 
   return (
     // The scroller is nested so the ingest overlay can pin to the pane. As a
@@ -207,29 +62,10 @@ export function ResumePreview() {
                 way an e-reader does rather than firing a white slab at you.
                 The marks sit outside the filter so they stay their own colour. */}
             <div
-              ref={pagesRef}
+              ref={hostRef}
               className="w-full dark:brightness-[0.82] dark:contrast-[0.96] dark:sepia-[0.12]"
             />
-            <div className="pointer-events-none absolute inset-0">
-              {marks.map((id) => {
-                const box = boxes[id];
-                const page = box && pages[box.page];
-                if (!page) return null;
-
-                return (
-                  <div
-                    key={id}
-                    className="border-primary bg-primary/8 animate-in fade-in absolute rounded-[3px] border-2 duration-200"
-                    style={{
-                      left: box.x * page.scale - 3,
-                      top: page.top + box.y * page.scale - 3,
-                      width: box.width * page.scale + 6,
-                      height: box.height * page.scale + 6,
-                    }}
-                  />
-                );
-              })}
-            </div>
+            <ResumeMarks boxes={boxes} pages={pages} />
           </div>
         ) : failed ? (
           <EmptyState
