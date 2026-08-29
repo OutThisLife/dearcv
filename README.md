@@ -23,3 +23,15 @@ LinkedIn is not supported and cannot be. Signed out, LinkedIn replaces every job
 The composer takes files. A PDF, a screenshot, or a photo attached to a message is read as context: an old resume, a LinkedIn export, a job posting, a page the fetcher could not reach. This is distinct from dropping a PDF onto the resume itself, which replaces the document and inherits its layout.
 
 The default model reads images natively. PDFs go through OpenRouter's file parser, pinned to the free Cloudflare engine — left unset it falls back to Mistral OCR at $2 per 1000 pages, billed to the account even under BYOK.
+
+Web search is whatever the connected provider runs itself — OpenRouter's, OpenAI's, or Anthropic's. None of it is ours, and it bills to the same key as the rest of the turn.
+
+## What gets stored, and when
+
+A dropped PDF is visible immediately and stored much later. It draws from a local object URL, and nothing leaves the browser until the model has actually answered a turn — not when the file lands, not when the message is sent. A visit that never gets a reply leaves no URL, no row, and no file, which covers the common cases of dropping a resume and thinking better of it, or a first turn dying on a rejected key.
+
+Keeping anything needs a session, since storing something means being able to say whose it is later. Connecting a provider mints one, so it costs a real user nothing. Without one both the file and the row are refused, and the thread still works for as long as the tab is open.
+
+Nothing is kept forever. A thread that goes seven days untouched is swept overnight, and its PDF is deleted before its row, because Postgres cannot cascade into blob storage and a file that outlives its row is litter nobody will ever look for. A second pass clears files no thread points at any more — an upload whose thread was never saved — sparing anything from the last day, so a file never outruns the row being written for it. `THREAD_RETENTION_DAYS` changes the window; `CRON_SECRET` guards the endpoint, and without it the sweep refuses to run at all.
+
+`DATABASE_URL` and Vercel Blob are both optional. Without them everything lives in memory and a reload starts over.

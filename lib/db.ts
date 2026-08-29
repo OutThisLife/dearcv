@@ -45,10 +45,19 @@ export async function loadThread(id: string): Promise<StoredThread | null> {
     sourceText: row.source_text ?? "",
     sourceName: row.source_name ?? "",
     pdfUrl: row.pdf_url ?? null,
-    messages: Array.isArray(row.messages) ? (row.messages as UIMessage[]) : [],
+    messages: Array.isArray(row.messages) ? (row.messages as UIMessage[]).map(identify) : [],
     ownerId: row.owner_id ?? null,
   };
 }
+
+/**
+ * Two messages that share an id are one message as far as the thread's history
+ * is concerned, and the turns after the clash re-parent to the root — a
+ * conversation reopens as a row of branches. Rows written before the reply
+ * carried an id of its own are repaired on the way out.
+ */
+const identify = (message: UIMessage, index: number): UIMessage =>
+  message.id ? message : { ...message, id: `restored-${index}` };
 
 /** Whether a thread will open for whoever is asking. */
 export const mayRead = (thread: StoredThread, viewer: string | null) =>
@@ -86,6 +95,46 @@ export async function saveResume(
     returning id
   `;
   return rows.length > 0;
+}
+
+/**
+ * Threads nobody has come back to, oldest first. Capped because the sweep runs
+ * inside a request and a backlog is better cleared over a few nights than not
+ * at all.
+ */
+export async function staleThreads(days: number, limit: number) {
+  if (!sql) return [];
+
+  const rows = await sql`
+    select id, pdf_url
+    from threads
+    where updated_at < now() - make_interval(days => ${days})
+    order by updated_at
+    limit ${limit}
+  `;
+  return rows.map((row) => ({
+    id: row.id as string,
+    pdfUrl: (row.pdf_url ?? null) as string | null,
+  }));
+}
+
+export async function forgetThreads(ids: string[]) {
+  if (!sql || ids.length === 0) return 0;
+
+  const rows = await sql`delete from threads where id = any(${ids}::uuid[]) returning id`;
+  return rows.length;
+}
+
+/**
+ * Which of these files a thread still points at. Asked the other way round —
+ * every url we know of — the answer grows with the table; this way the question
+ * stays the size of the page being swept.
+ */
+export async function knownPdfUrls(urls: string[]) {
+  if (!sql || urls.length === 0) return new Set<string>();
+
+  const rows = await sql`select pdf_url from threads where pdf_url = any(${urls}::text[])`;
+  return new Set(rows.map((row) => row.pdf_url as string));
 }
 
 /** The chat half, written server-side once a turn finishes streaming. */
