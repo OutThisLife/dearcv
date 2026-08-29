@@ -7,14 +7,28 @@ Font.register({
   src: "/fonts/GreatVibes-Regular.ttf",
 });
 
+/**
+ * The PDF format guarantees these fourteen, so a resume can change typeface
+ * without waiting on a download. Serif matters most: plenty of resumes are
+ * set in one, and rendering those in Helvetica is the single biggest way a
+ * carried-over document stops looking like itself.
+ */
+const FAMILIES = {
+  sans: { body: "Helvetica", bold: "Helvetica-Bold" },
+  serif: { body: "Times-Roman", bold: "Times-Bold" },
+  mono: { body: "Courier", bold: "Courier-Bold" },
+} as const;
+
 function density(doc: ResumeDoc) {
-  if (doc.theme.density === "compact") {
-    return { name: 18, body: 9.5, section: 10.5, gap: 8, item: 7, page: 36 };
-  }
-  if (doc.theme.density === "airy") {
-    return { name: 22, body: 10.5, section: 11.5, gap: 14, item: 12, page: 48 };
-  }
-  return { name: 20, body: 10, section: 11, gap: 10, item: 9, page: 44 };
+  const preset =
+    doc.theme.density === "compact"
+      ? { name: 18, body: 9.5, section: 10.5, gap: 8, item: 7, page: 36 }
+      : doc.theme.density === "airy"
+        ? { name: 22, body: 10.5, section: 11.5, gap: 14, item: 12, page: 48 }
+        : { name: 20, body: 10, section: 11, gap: 10, item: 9, page: 44 };
+
+  // An upload's own sizes, measured at ingest, beat any preset guess.
+  return { ...preset, ...doc.theme.metrics };
 }
 
 function hrefLabel(item: ResumeItem) {
@@ -39,11 +53,12 @@ export function ResumePdf({
   onRender?: (params: { blob?: Blob }) => void;
 }) {
   const d = density(doc);
+  const face = FAMILIES[doc.theme.font] ?? FAMILIES.sans;
   const styles = StyleSheet.create({
     page: {
       backgroundColor: doc.theme.background,
       color: doc.theme.text,
-      fontFamily: "Helvetica",
+      fontFamily: face.body,
       fontSize: d.body,
       lineHeight: 1.35,
       paddingTop: d.page,
@@ -60,7 +75,7 @@ export function ResumePdf({
       backgroundColor: doc.theme.accent,
     },
     name: {
-      fontFamily: "Helvetica-Bold",
+      fontFamily: face.bold,
       fontSize: d.name,
       letterSpacing: 0.2,
     },
@@ -75,7 +90,7 @@ export function ResumePdf({
       marginTop: 6,
     },
     sectionTitle: {
-      fontFamily: "Helvetica-Bold",
+      fontFamily: face.bold,
       fontSize: d.section,
       letterSpacing: 0.6,
       textTransform: "uppercase",
@@ -92,7 +107,7 @@ export function ResumePdf({
       gap: 12,
     },
     org: {
-      fontFamily: "Helvetica-Bold",
+      fontFamily: face.bold,
     },
     muted: {
       color: doc.theme.muted,

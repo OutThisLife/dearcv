@@ -93,6 +93,14 @@ export async function POST(req: Request) {
     generateMessageId: generateId,
     onFinish: ({ messages: history }) => {
       if (!isThreadId(threadId)) return;
+      // The same bar the browser uses to give a thread its URL. A turn that
+      // died before the model said anything would otherwise leave a row behind
+      // that nothing links to and nobody can reach.
+      const answered = history.some(
+        (message) =>
+          message.role === "assistant" && message.parts.some((part) => part.type !== "step-start"),
+      );
+      if (!answered) return;
       // Nothing downstream can retry this, so a failure has to at least be
       // findable — silently losing the turn is how this went unnoticed before.
       void saveMessages(threadId, history, viewer).catch((error: unknown) => {

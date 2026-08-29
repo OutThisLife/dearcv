@@ -7,17 +7,33 @@ import { z } from "zod";
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 export const resumeLinkSchema = z.object({
-  label: z.string(),
-  href: z.string(),
+  label: z
+    .string()
+    .describe(
+      "The visible text, exactly as the resume prints it — if it shows github.com/handle, the label is github.com/handle, not 'GitHub'.",
+    ),
+  href: z.string().describe("Where the label points."),
 });
 
 export const resumeItemSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  org: z.string().optional(),
-  href: z.string().optional(),
+  title: z
+    .string()
+    .describe(
+      "The role or position. For an entry with no role — just a company and dates — the company name goes here instead.",
+    ),
+  org: z
+    .string()
+    .optional()
+    .describe(
+      "The company or school name in words, e.g. 'BrainTrust'. Never a domain — the domain renders from href on its own.",
+    ),
+  href: z
+    .string()
+    .optional()
+    .describe("The company's URL. Renders as its bare domain after the name."),
   location: z.string().optional(),
-  start: z.string().optional(),
+  start: z.string().optional().describe("As printed — do not reformat dates."),
   end: z.string().optional(),
   bullets: z.array(z.string()),
 });
@@ -32,11 +48,25 @@ export const resumeSectionSchema = z.object({
 
 export const resumeThemeSchema = z.object({
   header: z.enum(["centered", "split", "accent-bar", "signature"]),
+  /** The three the PDF format guarantees, so no file has to be fetched. */
+  font: z.enum(["sans", "serif", "mono"]).default("sans"),
   accent: z.string(),
   text: z.string(),
   muted: z.string(),
   background: z.string(),
   density: z.enum(["compact", "normal", "airy"]),
+  /** Type sizes and page margin in points, measured off the uploaded file. */
+  metrics: z
+    .object({
+      name: z.number(),
+      body: z.number(),
+      section: z.number(),
+      page: z.number(),
+    })
+    .optional()
+    .describe(
+      "Type sizes and page margin in points, measured off the uploaded file. Leave alone unless they ask for bigger or smaller type.",
+    ),
   page: z.enum(["letter", "a4"]),
   showSignature: z.boolean(),
   signature: z.string().optional(),
@@ -44,7 +74,12 @@ export const resumeThemeSchema = z.object({
 
 export const resumeBasicsSchema = z.object({
   name: z.string(),
-  headline: z.string().optional(),
+  headline: z
+    .string()
+    .optional()
+    .describe(
+      "The one-liner under the name, only if the resume actually has one. Never write one for them.",
+    ),
   email: z.string().optional(),
   phone: z.string().optional(),
   location: z.string().optional(),
@@ -52,10 +87,18 @@ export const resumeBasicsSchema = z.object({
   summary: z.string().optional(),
 });
 
-export const resumeDocSchema = z.object({
+/**
+ * Everything a rewrite is allowed to touch. The look is measured off the
+ * uploaded file, so asking the model to restate it on every rewrite only gave
+ * it a chance to get it wrong.
+ */
+export const resumeContentSchema = z.object({
   basics: resumeBasicsSchema,
-  theme: resumeThemeSchema,
   sections: z.array(resumeSectionSchema),
+});
+
+export const resumeDocSchema = resumeContentSchema.extend({
+  theme: resumeThemeSchema,
 });
 
 export type ResumeLink = z.infer<typeof resumeLinkSchema>;
@@ -63,10 +106,12 @@ export type ResumeItem = z.infer<typeof resumeItemSchema>;
 export type ResumeSection = z.infer<typeof resumeSectionSchema>;
 export type ResumeTheme = z.infer<typeof resumeThemeSchema>;
 export type ResumeBasics = z.infer<typeof resumeBasicsSchema>;
+export type ResumeContent = z.infer<typeof resumeContentSchema>;
 export type ResumeDoc = z.infer<typeof resumeDocSchema>;
 
 export const defaultTheme = (): ResumeTheme => ({
   header: "split",
+  font: "sans",
   accent: "#1f4e5f",
   text: "#171717",
   muted: "#5c5c5c",

@@ -18,6 +18,7 @@ type PageBox = { top: number; scale: number };
 
 export function ResumePreview() {
   const doc = useResumeStore((s) => s.doc);
+  const touched = useResumeStore((s) => s.touched);
   const originalUrl = useResumeStore((s) => s.originalUrl);
   const previewUrl = useResumeStore((s) => s.previewUrl);
   const setPreviewUrl = useResumeStore((s) => s.setPreviewUrl);
@@ -30,13 +31,23 @@ export function ResumePreview() {
   const [boxes, setBoxes] = useState<PdfBoxes>({});
   const [pages, setPages] = useState<PageBox[]>([]);
 
-  // Until the upload is parsed into an editable doc, show the file as-is.
-  const renderUrl = isEmptyResume(doc) ? originalUrl : previewUrl;
-  const empty = !renderUrl && !ingesting;
+  const [failed, setFailed] = useState(false);
+
+  // Their actual file, for as long as it is still what the document says.
+  // The background transcription fills the document without flipping
+  // `touched`, so uploading alone never swaps the real PDF for our redraw —
+  // only an edit does.
+  const renderUrl = originalUrl && !touched ? originalUrl : previewUrl;
+  // Nothing to show and nothing coming. Reading this off renderUrl alone put
+  // the whole drop zone back on screen while the first edit was still being
+  // drawn, at the exact moment the agent said it had changed something.
+  const empty = isEmptyResume(doc) && !originalUrl && !ingesting;
 
   useEffect(() => {
     const id = ++generation.current;
     let objectUrl = "";
+
+    setFailed(false);
 
     if (isEmptyResume(doc)) {
       setPreviewUrl(null);
@@ -46,24 +57,31 @@ export function ResumePreview() {
     }
 
     const timer = window.setTimeout(async () => {
-      const { pdf } = await import("@react-pdf/renderer");
-      // The laid-out tree arrives on the same pass that makes the blob, so the
-      // geometry always describes the paper we are about to show.
-      let laidOut: PdfBoxes = {};
-      const blob = await pdf(
-        <ResumePdf
-          doc={doc}
-          onRender={(params) => {
-            laidOut = readPdfBoxes(
-              (params as { _INTERNAL__LAYOUT__DATA_?: unknown })._INTERNAL__LAYOUT__DATA_,
-            );
-          }}
-        />,
-      ).toBlob();
-      if (generation.current !== id) return;
-      objectUrl = URL.createObjectURL(blob);
-      setBoxes(laidOut);
-      setPreviewUrl(objectUrl);
+      try {
+        const { pdf } = await import("@react-pdf/renderer");
+        // The laid-out tree arrives on the same pass that makes the blob, so
+        // the geometry always describes the paper we are about to show.
+        let laidOut: PdfBoxes = {};
+        const blob = await pdf(
+          <ResumePdf
+            doc={doc}
+            onRender={(params) => {
+              laidOut = readPdfBoxes(
+                (params as { _INTERNAL__LAYOUT__DATA_?: unknown })._INTERNAL__LAYOUT__DATA_,
+              );
+            }}
+          />,
+        ).toBlob();
+        if (generation.current !== id) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBoxes(laidOut);
+        setPreviewUrl(objectUrl);
+      } catch (error) {
+        // Left unhandled this waited forever on a page that was never coming,
+        // while the transcript happily said the edit had landed.
+        console.error("Couldn't draw the resume.", error);
+        if (generation.current === id) setFailed(true);
+      }
     }, 80);
 
     return () => {
@@ -98,7 +116,10 @@ export function ResumePreview() {
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const points: number[] = [];
-      host.replaceChildren();
+      // Painted off-document and swapped in at the end. Clearing the host up
+      // front emptied the pane on every keystroke-sized edit and let the pages
+      // pop back one at a time, which is what made an edit feel like a reload.
+      const painted: HTMLCanvasElement[] = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -115,11 +136,13 @@ export function ResumePreview() {
         await page.render({ canvasContext: ctx, canvas, viewport }).promise;
         if (cancelled) break;
         points.push(base.width);
-        host.appendChild(canvas);
+        painted.push(canvas);
       }
 
       await pdf.cleanup();
       if (cancelled) return;
+
+      host.replaceChildren(...painted);
 
       // Measure the painted canvases rather than adding up heights, so the
       // marks cannot drift a subpixel per page down a long resume.
@@ -131,14 +154,20 @@ export function ResumePreview() {
       );
     };
 
-    void paint();
+    // A quick second edit revokes the blob this pass is still fetching. That
+    // is expected — a newer paint is already on its way — but unhandled it
+    // rejected and left whatever was on screen standing as the current resume.
+    const repaint = () =>
+      void paint().catch((error) => {
+        if (!cancelled) console.error("Couldn't paint the resume.", error);
+      });
+
+    repaint();
 
     const ro = new ResizeObserver(() => {
       if (Math.abs(host.clientWidth - widthRef.current) < rem() * 0.125) return;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        void paint();
-      }, 80);
+      timer = window.setTimeout(repaint, 80);
     });
     ro.observe(host);
 
@@ -202,6 +231,12 @@ export function ResumePreview() {
               })}
             </div>
           </div>
+        ) : failed ? (
+          <EmptyState
+            className="min-h-full"
+            icon={<PdfFileIcon />}
+            description="Something went wrong drawing your resume. Ask for the change again and I'll have another go."
+          />
         ) : (
           <div className="grid min-h-full place-items-center">
             <Thinking large label="Setting the type" className="flex-col gap-3" />

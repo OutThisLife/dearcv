@@ -7,7 +7,7 @@ import { boxIds } from "@/lib/resume/pdf-boxes";
 import {
   isEmptyResume,
   resumeBasicsSchema,
-  resumeDocSchema,
+  resumeContentSchema,
   resumeItemSchema,
   resumeSectionSchema,
   resumeThemeSchema,
@@ -93,13 +93,13 @@ export function ResumeTools() {
         toolName: "update_resume",
         type: "frontend" as const,
         description:
-          "Replace all resume content (basics + sections). Theme is kept unless the document is empty.",
-        parameters: resumeDocSchema,
-        execute: async (resume: z.infer<typeof resumeDocSchema>) => {
-          store().replaceContent(resume);
+          "Replace all resume content (basics + sections). The look is measured off their file and never changes here — use update_theme for that.",
+        parameters: resumeContentSchema,
+        execute: async (content: z.infer<typeof resumeContentSchema>) => {
+          store().replaceContent({ ...content, theme: store().doc.theme });
           // Everything moved. Outlining all of it says nothing.
           useMarksStore.getState().clearMarks();
-          return { ok: true, name: resume.basics.name };
+          return { ok: true, name: content.basics.name };
         },
         render: ({ args }: { args: { basics?: { name?: string } } }) => (
           <ToolNote label="Updated the resume" detail={args.basics?.name} />
@@ -122,7 +122,7 @@ export function ResumeTools() {
         toolName: "update_theme",
         type: "frontend" as const,
         description:
-          "Patch the look: header layout (centered / split / accent-bar / signature), colors (accent, text, muted, background), density, page size, signature.",
+          "Patch the look: header layout (centered / split / accent-bar / signature), typeface (sans / serif / mono), colors (accent, text, muted, background), density, page size, signature. Only when they ask — the look already matches the file they uploaded.",
         parameters: resumeThemeSchema.partial(),
         execute: async (theme: Partial<z.infer<typeof resumeThemeSchema>>) => {
           needsCarry();

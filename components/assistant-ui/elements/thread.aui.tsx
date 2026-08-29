@@ -42,6 +42,7 @@ import {
   type FileMessagePartComponent,
   type ImageMessagePartComponent,
   type ToolCallMessagePartComponent,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -58,6 +59,7 @@ import {
   useContext,
   useEffect,
   useRef,
+  type ClipboardEvent,
   type ComponentType,
   type FC,
   type KeyboardEvent,
@@ -266,6 +268,24 @@ function guardComposerEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
   useAuthStore.getState().requestSend();
 }
 
+/** Only the edges — a copy that dragged blank lines off a page or a terminal. */
+function insertTrimmedPaste(
+  event: ClipboardEvent<HTMLTextAreaElement>,
+  setText: (value: string) => void,
+) {
+  const raw = event.clipboardData?.getData("text/plain") ?? "";
+  const trimmed = raw.trim();
+  if (raw === trimmed) return;
+  event.preventDefault();
+  if (!trimmed) return;
+  const el = event.currentTarget;
+  const start = el.selectionStart;
+  setText(`${el.value.slice(0, start)}${trimmed}${el.value.slice(el.selectionEnd)}`);
+  requestAnimationFrame(() => {
+    el.setSelectionRange(start + trimmed.length, start + trimmed.length);
+  });
+}
+
 const GatedComposerSend: FC = () => {
   const authed = useIsAuthed();
   const pendingSend = useAuthStore((s) => s.pendingSend);
@@ -318,8 +338,27 @@ const GatedComposerSend: FC = () => {
 };
 
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+  const aui = useAui();
+  const text = useAuiState((s) => s.composer.text);
+  const hasAttachments = useAuiState((s) => s.composer.attachments.length > 0);
+
+  const setText = (value: string) => {
+    try {
+      aui.composer().setText(value);
+    } catch {
+      // Runtime not bound yet.
+    }
+  };
+
   return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+    <ComposerPrimitive.Root
+      className="aui-composer-root relative flex w-full flex-col"
+      onSubmitCapture={(event) => {
+        const trimmed = text.trim();
+        if (trimmed !== text) setText(trimmed);
+        if (!trimmed && !hasAttachments) event.preventDefault();
+      }}
+    >
       <ComposerPrimitive.AttachmentDropzone
         render={
           <div
@@ -343,6 +382,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           enterKeyHint="send"
           aria-label="Message input"
           onKeyDown={guardComposerEnter}
+          onPaste={(event) => insertTrimmedPaste(event, setText)}
         />
         <ComposerAction />
       </ComposerPrimitive.AttachmentDropzone>

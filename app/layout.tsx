@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Literata } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { ThemeFavicon } from "@/components/theme-favicon";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -35,6 +36,12 @@ export const metadata: Metadata = {
   metadataBase: new URL(origin),
   title: "DearCV",
   description: "Chat with a live PDF resume.",
+  icons: {
+    icon: [
+      { url: "/favicon-light.svg", type: "image/svg+xml", media: "(prefers-color-scheme: light)" },
+      { url: "/favicon-dark.svg", type: "image/svg+xml", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
   openGraph: {
     title: "DearCV",
     description: "Chat with a live PDF resume.",
@@ -63,6 +70,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <ThemeFavicon />
           <TooltipProvider>{children}</TooltipProvider>
         </ThemeProvider>
       </body>
