@@ -17,6 +17,14 @@ export const canOwn = () => secret.length > 0;
 const fingerprint = (identity: string) =>
   createHmac("sha256", secret).update(identity).digest("hex");
 
+/**
+ * A ChatGPT sign-in names its account outright — the verified subject of its
+ * ID token — so, like OpenRouter, the threads follow the account rather than
+ * a token that rotates every hour.
+ */
+export const chatGptOwner = (subject: string) =>
+  canOwn() && subject ? fingerprint(`chatgpt:${subject}`) : null;
+
 /** The account behind a key, which outlives any single key it issues. */
 async function openRouterAccount(apiKey: string) {
   const res = await fetch("https://openrouter.ai/api/v1/key", {

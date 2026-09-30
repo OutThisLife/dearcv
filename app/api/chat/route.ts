@@ -21,7 +21,7 @@ const SOURCE_NOTE =
   "GitHub profiles and repositories are read through the API and come back clean. LinkedIn cannot be read at all. If a fetch fails, the result says why — pass that reason on rather than inventing one.";
 
 export async function POST(req: Request) {
-  const { apiKey, provider, model } = readLlmRequest(req);
+  const { apiKey, provider, model, plan } = await readLlmRequest(req);
   if (!apiKey) {
     return Response.json({ error: "Connect a provider to send a message." }, { status: 401 });
   }
@@ -54,6 +54,7 @@ export async function POST(req: Request) {
     apiKey,
     provider,
     model,
+    plan,
     sessionId: id?.slice(0, 256),
   });
 

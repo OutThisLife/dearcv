@@ -31,12 +31,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "Nothing to transcribe." }, { status: 400 });
   }
 
-  const { apiKey, provider, model } = readLlmRequest(req);
+  const { apiKey, provider, model, plan } = await readLlmRequest(req);
   if (!apiKey) {
     return Response.json({ error: "No key connected." }, { status: 401 });
   }
 
-  const llm = createModel({ apiKey, provider, model });
+  const llm = createModel({ apiKey, provider, model, plan });
 
   try {
     const { output } = await generateText({
