@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { typesetSchema } from "./typeset";
 
 /**
  * Ten times a heavy resume. Shared so the browser can turn an oversized file
@@ -47,7 +48,7 @@ export const resumeSectionSchema = z.object({
 });
 
 export const resumeThemeSchema = z.object({
-  header: z.enum(["centered", "split", "accent-bar", "signature"]),
+  header: z.enum(["centered", "split", "left", "accent-bar", "signature"]),
   /** The three the PDF format guarantees, so no file has to be fetched. */
   font: z.enum(["sans", "serif", "mono"]).default("sans"),
   accent: z.string(),
@@ -70,6 +71,10 @@ export const resumeThemeSchema = z.object({
   page: z.enum(["letter", "a4"]),
   showSignature: z.boolean(),
   signature: z.string().optional(),
+  /** How the uploaded file was set, measured off its pages. See typeset.ts. */
+  // A stored document from before a change to its shape loses only the
+  // measured look, and falls back to the presets, rather than failing whole.
+  typeset: typesetSchema.optional().catch(undefined),
 });
 
 export const resumeBasicsSchema = z.object({
@@ -153,6 +158,18 @@ export const blankResume = (): ResumeDoc => ({
 });
 
 /**
+ * What an upload starts from: nothing at all, rather than the scaffold a
+ * from-scratch page shows. The scaffold's empty Experience, Education and
+ * Skills used to ride into the model's view of the document and come back out
+ * as sections the resume never had.
+ */
+export const uploadStub = (theme: ResumeTheme): ResumeDoc => ({
+  basics: { name: "", links: [] },
+  theme,
+  sections: [],
+});
+
+/**
  * Whether this document has anything worth drawing yet. A header on its own
  * does not count, deliberately: with an upload behind it the PDF is the better
  * picture of the same person, and a page holding nothing but a name reads as
@@ -167,8 +184,19 @@ export function isEmptyResume(doc: ResumeDoc): boolean {
   return doc.sections.every((section) => section.items.length === 0 && !section.lines?.length);
 }
 
-export function upsertById<T extends { id: string }>(list: T[], next: T): T[] {
+/**
+ * Replaces in place, or inserts. `before` places a new entry ahead of the one
+ * with that id — a new job goes above the last one, not under the oldest —
+ * and moves an existing one there; without it, a new entry goes last.
+ */
+export function upsertById<T extends { id: string }>(list: T[], next: T, before?: string): T[] {
   const i = list.findIndex((item) => item.id === next.id);
-  if (i === -1) return [...list, next];
-  return list.map((item, idx) => (idx === i ? next : item));
+  const anchor = before ? list.findIndex((item) => item.id === before) : -1;
+  if (anchor === -1 || before === next.id) {
+    if (i === -1) return [...list, next];
+    return list.map((item, idx) => (idx === i ? next : item));
+  }
+  const rest = list.filter((item) => item.id !== next.id);
+  const at = rest.findIndex((item) => item.id === before);
+  return [...rest.slice(0, at), next, ...rest.slice(at)];
 }

@@ -15,9 +15,11 @@ import { DearCvWordmark } from "@/components/dearcv-wordmark";
 import { ResumeTools } from "@/components/resume-tools";
 import { Button } from "@/components/ui/button";
 import { attachments } from "@/lib/attachments";
+import { ensureCarried } from "@/lib/resume/ingest";
+import type { ChatGptAvailability } from "@/lib/chatgpt";
 import { isEmptyResume } from "@/lib/resume/schema";
 import { providerLabel } from "@/lib/providers";
-import { authHeaders, useAuthStore } from "@/lib/store/auth";
+import { authHeaders, useAuthStore, useIsAuthed } from "@/lib/store/auth";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -58,7 +60,9 @@ export function Assistant() {
     transport: new AssistantChatTransport({
       api: "/api/chat",
       headers: () => authHeaders(),
-      body: () => {
+      body: async () => {
+        // A turn waits for the upload's transcription rather than racing it.
+        await ensureCarried();
         const { doc, sourceText } = useResumeStore.getState();
         // The transport overwrites `id` with its own thread-list id, so the
         // thread to save the turn under has to travel under its own name.
@@ -130,10 +134,19 @@ function ResumeWelcome() {
 function ChatHeader() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const apiKey = useAuthStore((s) => s.apiKey);
+  const via = useAuthStore((s) => s.via);
   const serverConfigured = useAuthStore((s) => s.serverConfigured);
   const provider = useAuthStore((s) => s.provider);
-  const connected = Boolean(apiKey || serverConfigured);
-  const label = apiKey ? providerLabel(provider) : serverConfigured ? "Ready" : "Connect";
+  const connected = useIsAuthed();
+  // OpenAI asks that plan usage say so where the conversation happens.
+  const label =
+    via === "chatgpt"
+      ? "Using ChatGPT plan"
+      : apiKey
+        ? providerLabel(provider)
+        : serverConfigured
+          ? "Ready"
+          : "Connect";
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between px-4">
@@ -153,13 +166,13 @@ function ChatHeader() {
 
 function AuthBootstrap() {
   useEffect(() => {
-    const { hydrate, setServerConfigured } = useAuthStore.getState();
+    const { hydrate, setServerStatus } = useAuthStore.getState();
 
     hydrate();
     void fetch("/api/auth/status")
       .then((res) => res.json())
-      .then((data: { configured?: boolean }) => {
-        setServerConfigured(Boolean(data.configured));
+      .then((data: { configured?: boolean; chatgpt?: ChatGptAvailability }) => {
+        setServerStatus({ configured: Boolean(data.configured), chatgpt: data.chatgpt ?? null });
       })
       .catch(() => undefined);
     // Once, on mount. The two actions it calls never change.

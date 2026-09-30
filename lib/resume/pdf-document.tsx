@@ -2,7 +2,7 @@ import { Document, Page, Text, View } from "@react-pdf/renderer";
 import { ResumeHeader } from "./pdf-header";
 import { ResumeSectionBlock } from "./pdf-sections";
 import { sheet } from "./pdf-theme";
-import type { ResumeDoc } from "./schema";
+import { isEmptyResume, type ResumeDoc } from "./schema";
 
 /**
  * The whole page, in the order it reads. Everything about how it looks is in
@@ -17,6 +17,12 @@ export function ResumePdf({
   onRender?: (params: { blob?: Blob }) => void;
 }) {
   const styles = sheet(doc);
+  // An empty heading is a placeholder, not content: it is kept only on the
+  // blank page, where it shows what goes where.
+  const blank = isEmptyResume(doc);
+  const sections = doc.sections.filter(
+    (section) => blank || section.items.length || section.lines?.length,
+  );
 
   return (
     <Document title={`${doc.basics.name} — Resume`} onRender={onRender}>
@@ -27,8 +33,13 @@ export function ResumePdf({
 
         {doc.basics.summary ? <Text style={styles.summary}>{doc.basics.summary}</Text> : null}
 
-        {doc.sections.map((section) => (
-          <ResumeSectionBlock key={section.id} section={section} styles={styles} />
+        {sections.map((section, i) => (
+          <ResumeSectionBlock
+            key={section.id}
+            section={section}
+            styles={styles}
+            first={i === 0 && !doc.basics.summary}
+          />
         ))}
 
         {doc.theme.showSignature ? (

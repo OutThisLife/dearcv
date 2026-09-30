@@ -26,13 +26,46 @@ const composerSurfaceClass =
 const composerShadowClass =
   "shadow-composer not-focus-within:hover:shadow-composer-hover focus-within:shadow-composer-focus";
 
-function guardComposerEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+type Aui = ReturnType<typeof useAui>;
+
+/**
+ * Sending while a reply is still coming steers it: the reply stops where it
+ * is — what it already did to the page stays done — and the new message goes
+ * out with everything so far in view, so the next answer takes it into
+ * account instead of queueing behind a turn that has stopped being wanted.
+ */
+async function steer(aui: Aui) {
+  const thread = aui.thread();
+  if (thread.getState().isRunning) {
+    thread.cancelRun();
+    // Cancelling settles over a tick or two; sending before it has would be
+    // refused as a second run.
+    for (let wait = 0; aui.thread().getState().isRunning && wait < 50; wait += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  aui.composer().send();
+}
+
+const hasDraft = (aui: Aui) => {
+  const { text, attachments } = aui.composer().getState();
+  return Boolean(text.trim()) || attachments.length > 0;
+};
+
+function guardComposerEnter(event: KeyboardEvent<HTMLTextAreaElement>, aui: Aui) {
   if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
     return;
   }
-  if (isAuthed()) return;
-  event.preventDefault();
-  useAuthStore.getState().requestSend();
+  if (!isAuthed()) {
+    event.preventDefault();
+    useAuthStore.getState().requestSend();
+    return;
+  }
+  // The primitive ignores Enter mid-reply; here it steers.
+  if (aui.thread().getState().isRunning && hasDraft(aui)) {
+    event.preventDefault();
+    void steer(aui);
+  }
 }
 
 /** Only the edges — a copy that dragged blank lines off a page or a terminal. */
@@ -148,12 +181,53 @@ export const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           autoFocus={autoFocus}
           enterKeyHint="send"
           aria-label="Message input"
-          onKeyDown={guardComposerEnter}
+          onKeyDown={(event) => guardComposerEnter(event, aui)}
           onPaste={(event) => insertTrimmedPaste(event, setText)}
         />
         <ComposerAction />
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
+  );
+};
+
+/** Mid-reply, a draft turns the stop button back into send — which steers. */
+const RunningAction: FC = () => {
+  const aui = useAui();
+  const drafting = useAuiState(
+    (s) => Boolean(s.composer.text.trim()) || s.composer.attachments.length > 0,
+  );
+
+  if (drafting) {
+    return (
+      <TooltipIconButton
+        tooltip="Send — steers the reply"
+        side="bottom"
+        type="button"
+        variant="default"
+        size="icon"
+        className="aui-composer-send size-7 rounded-full"
+        aria-label="Send message"
+        onClick={() => void steer(aui)}
+      >
+        <ArrowUpIcon className="aui-composer-send-icon size-4" />
+      </TooltipIconButton>
+    );
+  }
+
+  return (
+    <ComposerPrimitive.Cancel
+      render={
+        <Button
+          type="button"
+          variant="default"
+          size="icon"
+          className="aui-composer-cancel size-7 rounded-full"
+          aria-label="Stop generating"
+        />
+      }
+    >
+      <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
+    </ComposerPrimitive.Cancel>
   );
 };
 
@@ -202,19 +276,7 @@ export const ComposerAction: FC = () => {
           <GatedComposerSend />
         </AuiIf>
         <AuiIf condition={(s) => s.thread.isRunning}>
-          <ComposerPrimitive.Cancel
-            render={
-              <Button
-                type="button"
-                variant="default"
-                size="icon"
-                className="aui-composer-cancel size-7 rounded-full"
-                aria-label="Stop generating"
-              />
-            }
-          >
-            <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
-          </ComposerPrimitive.Cancel>
+          <RunningAction />
         </AuiIf>
       </div>
     </div>

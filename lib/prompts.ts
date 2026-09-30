@@ -10,6 +10,8 @@ const POLICY = `Scope:
 - Invent nothing — no jobs, dates, degrees, metrics, skills, or headlines that are not in the source, the live document, or the user.
 - Keep the person's voice. Short, concrete bullets. No filler.
 - Prefer the smallest tool that does the job. Do not replace the whole document for a one-line change.
+- Touch only what they asked about. Every other section, entry, bullet and word stays exactly as it is — never tidy, reorder, reword or "complete" the rest while you are in there, and never add a section, entry or placeholder they did not ask for.
+- New material matches what is already there: a new heading in the same casing and wording style as the others, bullets in the same voice and tense, dates in the same format, an entry shaped like its neighbours (same fields filled in the same way).
 - Do not restyle unless they ask. Look (header layout, colors, density) only changes through update_theme.
 - Do not dump the resume as markdown unless they ask to see it as text.
 - Never narrate the plumbing. "Live document", "blank", "snapshot", "parsed", "not parsed yet", "building it from your PDF" — that is how this works inside, not something they asked about. They uploaded their resume; from where they sit it is simply there. Report what changed on the page, never the bookkeeping behind it.
@@ -39,12 +41,13 @@ ${SOURCES}
 When to use which tool:
 - get_resume if the snapshot below might be stale
 - update_basics / upsert_item / remove_item / upsert_section / remove_section for surgical content edits
+- Adding a section: one upsert_section with a new id, and \`before\` set to the id of the section it goes ahead of (leave it out to add it last). Adding a job: upsert_item with \`before\` set to the entry it goes above — the newest job goes first, above the current top one.
 - update_theme only if they asked to change the look (typeface, text color, accent, header layout, density)
 - update_resume only for a full content rebuild (new resume, or they asked to start over). It takes content only and never changes the look.
 - fetch_url to read any page — a GitHub profile, a personal site, a job post. It is the only way to read a URL.
 - web_search to find their pages when they have not given you a URL. Follow the good hits with fetch_url — a search snippet is not a source.
 
-Carrying an uploaded resume across is transcription, not writing. Every word stays as printed: bullets verbatim, dates as written, link text as shown. If the original has no headline, the copy has none — do not summarize them into one. Keep the section order and give every section and item a stable kebab-case id. The typeface and header layout were measured off the file when they uploaded it and are already set — you cannot see that from the text, so do not guess at them and do not "restore" them.
+Carrying an uploaded resume across is transcription, not writing. Every word stays as printed: bullets verbatim, dates as written, link text as shown. If the original has no headline, the copy has none — do not summarize them into one. Keep the section order and give every section and item a stable kebab-case id. The look — typeface, which lines are bold, rules, bullets, spacing — was measured off the file itself and is applied on its own. You cannot see it from the text, so do not guess at it, do not "restore" it, and never try to express it through content.
 After a change, say what you did in one or two sentences.`;
 
 /**
@@ -57,7 +60,10 @@ export const CARRY_TEXT = `You are transcribing a resume from extracted PDF text
 - No headline unless the original prints one under the name. Invent nothing.
 - Keep the section order. Give every section and item a stable kebab-case id.
 - org is the company or school name in words, never a domain. href is its URL. An entry with no role puts the company in title.
-- A skills-style section is lines of text, with no items.`;
+- A skills-style section is lines of text, with no items.
+- A one-line entry — a company, its domain and dates, nothing under it — is an item with the company in title, no org, and no bullets.
+- Section titles exactly as printed. Dates exactly as printed, the end date included ("Present" goes in end).
+- Only the sections the text has. Never add an empty or placeholder section.`;
 
 /** Stable prefix, marked as a cache breakpoint. Never interpolate request data. */
 const INSTRUCTION: SystemModelMessage = {
@@ -68,6 +74,15 @@ const INSTRUCTION: SystemModelMessage = {
     anthropic: { cacheControl: { type: "ephemeral" } },
   },
 };
+
+/**
+ * The document as the model should see it: without the measured typeset,
+ * which is geometry it has no business editing and would only cost tokens.
+ */
+export function forModel(doc: ResumeDoc) {
+  const { typeset: _typeset, ...theme } = doc.theme;
+  return { ...doc, theme };
+}
 
 function resumeContext(doc: ResumeDoc | null, sourceText: string) {
   if (!doc) {
@@ -83,13 +98,15 @@ function resumeContext(doc: ResumeDoc | null, sourceText: string) {
     : "The live document already has content. Edit it; do not start over unless they ask. Do not change theme unless they asked.";
 
   // Once a document exists it supersedes the upload, so the raw text stops
-  // riding along on every turn.
-  const source = empty && upload ? `\n\nUploaded PDF text:\n${upload.slice(0, SOURCE_CHARS)}` : "";
+  // riding along on every turn — and until then the document is an empty
+  // stub, which is not worth showing: an empty section in it reads to the
+  // model as a section to keep.
+  if (empty && upload) return `${state}\n\nUploaded PDF text:\n${upload.slice(0, SOURCE_CHARS)}`;
 
   return `${state}
 
 Live resume JSON (snapshot from the start of this turn):
-${JSON.stringify(doc)}${source}`;
+${JSON.stringify(forModel(doc))}`;
 }
 
 export function chatPrompt(input: { doc?: unknown; sourceText?: unknown }) {

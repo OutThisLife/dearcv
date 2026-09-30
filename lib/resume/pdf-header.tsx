@@ -17,6 +17,7 @@ function ContactLine({ doc, styles }: HeaderProps) {
     doc.basics.location,
     ...doc.basics.links.map((link) => link.label),
   ].filter((value): value is string => Boolean(value));
+  const { separator } = styles.typeset.contact;
 
   return (
     <Text style={styles.contact}>
@@ -25,13 +26,13 @@ function ContactLine({ doc, styles }: HeaderProps) {
 
         return (
           <Text key={`${part}-${i}`}>
-            {i > 0 ? "  ·  " : ""}
+            {i > 0 ? separator : ""}
             {link ? (
-              <Link src={link.href} style={{ color: doc.theme.muted }}>
+              <Link src={link.href} style={styles.link}>
                 {part}
               </Link>
             ) : part === doc.basics.email ? (
-              <Link src={`mailto:${part}`} style={{ color: doc.theme.muted }}>
+              <Link src={`mailto:${part}`} style={styles.link}>
                 {part}
               </Link>
             ) : (
@@ -96,6 +97,16 @@ function CenteredHeader({ doc, styles }: HeaderProps) {
   );
 }
 
+/** Everything stacked flush left. */
+function LeftHeader({ doc, styles }: HeaderProps) {
+  return (
+    <View id={boxIds.basics} style={{ alignItems: "flex-start" }}>
+      <Named doc={doc} styles={styles} />
+      <ContactLine doc={doc} styles={styles} />
+    </View>
+  );
+}
+
 /**
  * Which header each look uses. A map rather than a chain of conditions, so the
  * one thing worth knowing here is stated outright: accent-bar is a stripe down
@@ -105,6 +116,7 @@ const HEADERS: Record<ResumeTheme["header"], (props: HeaderProps) => React.React
   split: SplitHeader,
   signature: SignatureHeader,
   centered: CenteredHeader,
+  left: LeftHeader,
   "accent-bar": CenteredHeader,
 };
 

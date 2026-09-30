@@ -1,4 +1,4 @@
-import { MAX_PDF_BYTES, resumeContentSchema } from "@/lib/resume/schema";
+import { isEmptyResume, MAX_PDF_BYTES, resumeContentSchema } from "@/lib/resume/schema";
 import { authHeaders } from "@/lib/store/auth";
 import { useResumeStore } from "@/lib/store/resume";
 
@@ -41,10 +41,10 @@ export async function ingestPdf(file: File) {
 
   try {
     const { readPdf } = await import("@/lib/resume/read-pdf");
-    const { text, look } = await readPdf(await file.arrayBuffer());
-    // The look is measured off the page here, while the coordinates still
-    // exist. Nothing downstream ever sees them again.
-    store.setSource(file, text, look);
+    const { text, look, layout } = await readPdf(await file.arrayBuffer());
+    // The page is read here, while the coordinates still exist. What they
+    // mean is worked out once the transcription says what each line is.
+    store.setSource(file, text, look, layout);
     // A scan with no text layer reads as a blank file. Nothing is broken, but
     // the agent is about to look like it cannot see a document that is plainly
     // on screen, so say why first.
@@ -53,7 +53,7 @@ export async function ingestPdf(file: File) {
     } else {
       // Fire the transcription now rather than inside their first request, so
       // "change my name" can be a one-field patch instead of a full rebuild.
-      void carrySource(text);
+      void ensureCarried();
     }
   } catch (error) {
     // A PDF we can't read still previews fine — it just can't be edited until
@@ -65,26 +65,51 @@ export async function ingestPdf(file: File) {
   }
 }
 
+let carrying: { source: string; done: Promise<void> } | null = null;
+
 /**
- * Failure here is not worth an error: the chat still carries the resume across
- * lazily on the first edit, exactly as it did before this existed. This only
- * makes that first edit instant when it can.
+ * Transcribes the upload into the live document, once per file. Started at
+ * upload, and awaited again before every chat turn — so a first request never
+ * reaches the model with the resume still untranscribed and left to be copied
+ * out by hand, which is where a whole rewrite used to lose its bold, its order,
+ * and gain sections it never had. Signing in later is covered by the same
+ * call: an attempt that could not be authorised is simply tried again.
+ *
+ * Failure is not worth an error. The chat can still carry the resume across
+ * itself; this only makes it the exception.
  */
+export function ensureCarried(): Promise<void> {
+  const { doc, sourceText } = useResumeStore.getState();
+  if (!sourceText.trim() || !isEmptyResume(doc)) return Promise.resolve();
+  if (carrying?.source === sourceText) return carrying.done;
+
+  const attempt = {
+    source: sourceText,
+    done: carrySource(sourceText).then((landed) => {
+      // Only a landed transcription is remembered; anything else is retried.
+      if (!landed && carrying === attempt) carrying = null;
+    }),
+  };
+  carrying = attempt;
+  return attempt.done;
+}
+
 async function carrySource(sourceText: string) {
   try {
     const res = await fetch("/api/carry", {
       method: "POST",
-      headers: { "content-type": "application/json", ...authHeaders() },
+      headers: { "content-type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ sourceText }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return false;
 
     const { content } = (await res.json()) as { content?: unknown };
     const parsed = resumeContentSchema.safeParse(content);
-    if (parsed.success) {
-      useResumeStore.getState().adoptContent(parsed.data, sourceText);
-    }
+    if (!parsed.success) return false;
+    useResumeStore.getState().adoptContent(parsed.data, sourceText);
+    return true;
   } catch (error) {
     console.error("Background carry didn't land.", error);
+    return false;
   }
 }

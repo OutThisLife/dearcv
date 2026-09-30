@@ -1,0 +1,20 @@
+diff --git a/lib/textkit.js b/lib/textkit.js
+index 7bfe0d9a119a8bd1ec98ff0f4827bd6cb3a967a4..a5246b33e877a2293fbe738d041ff119ca194f85 100644
+--- a/lib/textkit.js
++++ b/lib/textkit.js
+@@ -2752,6 +2752,15 @@ const linebreaker = (options) => {
+         let tolerance = options.tolerance || 4;
+         const attributes = getAttributes(attributedString);
+         const nodes = getNodes(attributedString, attributes, options);
++        // Ragged text breaks the way Word, Google Docs and browsers break it:
++        // each line takes every word that fits at its natural width, and no
++        // more. Knuth–Plass balances a paragraph by squeezing its spaces,
++        // which is right for justified text and moves line breaks everywhere
++        // else — a resume carried across should wrap where it wrapped.
++        if (attributes.align !== 'justify') {
++            const natural = nodes.map((node) => node.type === 'glue' && node.shrink !== 0 ? Object.assign({}, node, { shrink: 0 }) : node);
++            return breakLines(attributedString, natural, applyBestFit(natural, availableWidths).slice(1));
++        }
+         let breaks = linebreak(nodes, availableWidths, tolerance);
+         // Try again with a higher tolerance if the line breaking failed.
+         while (breaks.length === 0 && tolerance < TOLERANCE_LIMIT) {

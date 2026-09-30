@@ -11,6 +11,8 @@ import {
   resumeSectionSchema,
   resumeThemeSchema,
 } from "@/lib/resume/schema";
+import { forModel } from "@/lib/prompts";
+import { restyle } from "@/lib/resume/restyle";
 import { useMarksStore } from "@/lib/store/marks";
 import { useResumeStore } from "@/lib/store/resume";
 
@@ -22,9 +24,22 @@ const itemRef = sectionRef.extend({
   itemId: z.string().describe("Id of the item to remove."),
 });
 
+const before = z
+  .string()
+  .optional()
+  .describe(
+    "Id of the entry this goes ahead of. Leave out to keep an existing one where it is, or to add a new one last.",
+  );
+
 const itemPayload = sectionRef.extend({
   item: resumeItemSchema,
+  before,
 });
+
+const sectionPayload = resumeSectionSchema.extend({ before });
+
+/** The look the model may ask for. The measured typeset is not its to touch. */
+const themePatch = resumeThemeSchema.omit({ typeset: true }).partial();
 
 const sectionId = z.object({
   id: z.string().describe("Id of an existing section."),
@@ -104,10 +119,10 @@ const TOOLS = [
     // resume is sitting in the instructions, unparsed.
     run: () => {
       const { doc, sourceName, sourceText } = resume();
-      if (!isEmptyResume(doc) || !sourceText.trim()) return { doc };
+      if (!isEmptyResume(doc) || !sourceText.trim()) return { doc: forModel(doc) };
 
       return {
-        doc,
+        doc: forModel(doc),
         upload: {
           name: sourceName,
           note: "Their resume is already in your instructions in full. Answer from it, and carry it across with update_resume when they ask for a change.",
@@ -144,11 +159,11 @@ const TOOLS = [
   defineTool({
     name: "update_theme",
     description:
-      "Patch the look: header layout (centered / split / accent-bar / signature), typeface (sans / serif / mono), colors (accent, text, muted, background), density, page size, signature. Only when they ask — the look already matches the file they uploaded.",
-    parameters: resumeThemeSchema.partial(),
+      "Patch the look: header layout (centered / split / left / accent-bar / signature), typeface (sans / serif / mono), colors (accent, text, muted, background), density, page size, signature. Only when they ask — the look already matches the file they uploaded, and what you change lands on top of it.",
+    parameters: themePatch,
     label: "Changed the look",
     run: (theme) => {
-      resume().patchDoc({ theme: { ...resume().doc.theme, ...theme } });
+      resume().patchDoc({ theme: restyle(resume().doc.theme, theme) });
       // Colors and density land page-wide, but a header change is local enough
       // to point at — and it is the one people notice too late.
       if ("header" in theme || "signature" in theme || "showSignature" in theme) {
@@ -159,12 +174,13 @@ const TOOLS = [
   }),
   defineTool({
     name: "upsert_section",
-    description: "Add or replace a whole section by id.",
-    parameters: resumeSectionSchema,
+    description:
+      "Add or replace a whole section by id. Replacing restates every item in it, so change only what they asked and keep the rest word for word.",
+    parameters: sectionPayload,
     label: "Updated a section",
     detail: (args) => args.title,
-    run: (section) => {
-      resume().upsertSection(section);
+    run: ({ before, ...section }) => {
+      resume().upsertSection(section, before);
       mark(boxIds.section(section.id));
       return { ok: true, id: section.id };
     },
@@ -185,8 +201,8 @@ const TOOLS = [
     parameters: itemPayload,
     label: "Updated a role",
     detail: (args) => args.item?.title,
-    run: ({ sectionId, item }) => {
-      if (!resume().upsertItem(sectionId, item)) missing("section", sectionId);
+    run: ({ sectionId, item, before }) => {
+      if (!resume().upsertItem(sectionId, item, before)) missing("section", sectionId);
       mark(boxIds.item(item.id));
       return { ok: true, sectionId, id: item.id };
     },

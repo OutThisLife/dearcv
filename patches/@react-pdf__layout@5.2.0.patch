@@ -1,0 +1,25 @@
+diff --git a/lib/index.js b/lib/index.js
+index 18c2618f4630b3c1296c8c3cac317b8d7666bbe8..0f725564275453cac6589ca7c2c51c377ab0c59a 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -3139,7 +3139,9 @@ const splitNodes = (height, contentArea, nodes) => {
+         }
+         if (isOutside) {
+             const box = Object.assign({}, child.box, { top: child.box.top - height });
+-            const next = Object.assign({}, child, { box });
++            // As CSS fragmentation does, a margin that falls at an unforced
++            // break is truncated: the first node on a new page starts at its top.
++            const next = Object.assign({}, child, { box }, nextChildren.length === 0 && !child.props?.break ? { style: Object.assign({}, child.style, { marginTop: 0 }) } : {});
+             nextChildren.push(next);
+             continue;
+         }
+@@ -3155,7 +3157,8 @@ const splitNodes = (height, contentArea, nodes) => {
+                 wrap: true,
+                 break: false,
+             });
+-            const next = Object.assign({}, child, { box, props });
++            const style = child.props?.break ? child.style : Object.assign({}, child.style, { marginTop: 0 });
++            const next = Object.assign({}, child, { box, props, style });
+             currentChildren.push(...futureFixedNodes);
+             nextChildren.push(next, ...futureNodes);
+             break;
