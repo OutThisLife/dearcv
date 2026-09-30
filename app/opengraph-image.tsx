@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import {
   BRAND,
+  BRAND_PLATE,
   MARK_PATH,
   MARK_VIEWBOX,
   WORDMARK_LEAF_GRADIENT,
@@ -24,7 +25,7 @@ export default function OpenGraphImage() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "#efe6d4",
+        backgroundColor: BRAND_PLATE,
       }}
     >
       <svg viewBox={MARK_VIEWBOX} width="160" height="233">
