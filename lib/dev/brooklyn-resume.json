@@ -1,0 +1,134 @@
+{
+  "basics": {
+    "name": "Brooklyn Nicholson",
+    "email": "brooklyn.bb.nicholson@gmail.com",
+    "links": [
+      {
+        "label": "github.com/outthislife",
+        "href": "https://github.com/outthislife"
+      },
+      {
+        "label": "linkedin.com/in/bbrooklyn",
+        "href": "https://linkedin.com/in/bbrooklyn"
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "skills",
+      "title": "Technical Skills",
+      "kind": "skills",
+      "items": [],
+      "lines": [
+        "React (&native)/Apollo/Astro/Angular/Vue, React Query/SWR, Tailwind, ThreeJS",
+        "TypeScript/Go/Python/GLSL, GraphQL/SQL, DevOps"
+      ]
+    },
+    {
+      "id": "experience",
+      "title": "Professional Experience",
+      "kind": "experience",
+      "items": [
+        {
+          "id": "braintrust",
+          "org": "BrainTrust",
+          "href": "https://braintrust.com",
+          "start": "Jan 2024",
+          "end": "Present",
+          "bullets": [
+            "Created a real time AI interview voice agent visualization using threejs & shaders",
+            "Worked intimately w/ designers to help design and implement the UI interface, web/mic controls, et al",
+            "Helped lead the integration of external teams and the finalization of complete e2e integration"
+          ],
+          "title": "FS Engineer & Consultant"
+        },
+        {
+          "id": "extendai",
+          "org": "ExtendAI",
+          "href": "https://extend.ai",
+          "start": "May 2022",
+          "end": "Feb 2024",
+          "bullets": [
+            "Developed a live video streaming service that went through a video/image-to-pointcloud pipeline",
+            "Developed a real-time particle system that consumed pointcloud buffers to render to 3D in a stylistic format, using WebSockets as a middleware service to talk to multiple clients per customer",
+            "Ideated and developed a proof of concept of a 3D timeline that showed motion through a 3D rendered scene, stitching together frames and a playback system along w/ different modes of visualization"
+          ],
+          "title": "Senior Full Stack Engineer"
+        },
+        {
+          "id": "clubnft",
+          "org": "ClubNFT",
+          "href": "https://clubnft.com",
+          "start": "May 2022",
+          "end": "Feb 2024",
+          "bullets": [
+            "Supervised a small group of designers/engineers to create a fully-featured design system, overall branding and eventual redesign of the app and marketing pages",
+            "Managed the design and development efforts of API schemas and various backend requirements",
+            "Developed the user facing app including user auth, stripe checkout, and an interactive dashboard"
+          ],
+          "title": "Senior Full Stack Engineer"
+        },
+        {
+          "id": "drinkworks",
+          "org": "DrinkWorks",
+          "href": "https://drinkworks.com",
+          "start": "July 2019",
+          "end": "Dec 2021",
+          "bullets": [
+            "Migrated the tech stack from express/ejs to nextjs, allowing us to hire more engineers",
+            "Supervised development efforts leading and mentoring a team of 7 other engineers",
+            "Developed a powerful branded design system with storybook and custom contentful plugins",
+            "Organized the architecture of a large scale GraphQL API with interconnected systems and external APIs such as auth0, shopify, contentful, geolocation availability services, et al. This made it possible to automatically resolve interrelated contexts and deep caching of objects that were exposed to the user"
+          ],
+          "title": "Senior Full Stack Engineer"
+        },
+        {
+          "id": "invisionapp",
+          "org": "InVisionApp",
+          "href": "https://invisionapp.com",
+          "start": "2017",
+          "end": "2020",
+          "bullets": [
+            "Migrated a legacy stack from coldfusion to nextjs with headless CMS integration",
+            "Fronted the efforts for a public launch of Studio platform; a Figma competitor at the time",
+            "Hosted engineering workshops to aid my team in developing a mastery of the new tech stack",
+            "Reduced a reverse proxy gateway from 1000s of lines to ~200 and created a marketing CLI"
+          ],
+          "title": "Senior Full Stack Engineer"
+        },
+        {
+          "id": "ifly",
+          "href": "https://iflyworld.com",
+          "start": "2015",
+          "end": "2017",
+          "bullets": [],
+          "title": "iFLY"
+        },
+        {
+          "id": "fodastudio",
+          "href": "https://fodastudio.com",
+          "start": "2013",
+          "end": "2017",
+          "bullets": [],
+          "title": "Foda Studio"
+        },
+        {
+          "id": "gkw",
+          "href": "https://thegkwco.com",
+          "start": "2010",
+          "end": "2017",
+          "bullets": [],
+          "title": "GKW"
+        },
+        {
+          "id": "glidedesign",
+          "href": "https://glidedesign.com",
+          "start": "2009",
+          "end": "2017",
+          "bullets": [],
+          "title": "Glide Design"
+        }
+      ]
+    }
+  ]
+}

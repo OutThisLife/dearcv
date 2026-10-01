@@ -10,30 +10,41 @@ import { useResumeStore } from "@/lib/store/resume";
 const SETTLE_MS = 80;
 
 /**
+ * Puts a new drawing up and only then lets the old one go. Until its
+ * replacement lands the old blob is still the page on screen and the file
+ * Save hands over; revoking it as soon as the document changed left a window
+ * where a repaint or a download reached for a file that was already gone.
+ */
+function showPreview(url: string | null) {
+  const { previewUrl, setPreviewUrl } = useResumeStore.getState();
+  setPreviewUrl(url);
+  if (previewUrl && previewUrl !== url) URL.revokeObjectURL(previewUrl);
+}
+
+/**
  * Draws the document onto paper. The blob goes to the store, because the pane
  * and the Save button both want it; the geometry comes back here, because only
  * the marks drawn over this render can use it.
  */
 export function usePdfRender(doc: ResumeDoc) {
   const generation = useRef(0);
-  const [boxes, setBoxes] = useState<PdfBoxes>({});
+  // Kept with the moment the document they describe arrived, so anything
+  // pointed at an edit can wait for the drawing that has it in.
+  const [drawn, setDrawn] = useState<{ boxes: PdfBoxes; at: number }>({ boxes: {}, at: 0 });
   const [failed, setFailed] = useState(false);
+
+  // The last drawing goes with the pane.
+  useEffect(() => () => showPreview(null), []);
 
   useEffect(() => {
     const id = ++generation.current;
-    let objectUrl = "";
-
-    // Reached through the store rather than subscribed. An action never
-    // changes identity, so listing one here says this redraws when the setter
-    // moves, which cannot happen — it only obscures that the document is the
-    // sole reason to draw again.
-    const { setPreviewUrl } = useResumeStore.getState();
+    const at = Date.now();
 
     setFailed(false);
 
     if (isEmptyResume(doc)) {
-      setPreviewUrl(null);
-      setBoxes({});
+      showPreview(null);
+      setDrawn({ boxes: {}, at });
       useMarksStore.getState().clearMarks();
       return;
     }
@@ -58,9 +69,8 @@ export function usePdfRender(doc: ResumeDoc) {
         ).toBlob();
 
         if (generation.current !== id) return;
-        objectUrl = URL.createObjectURL(blob);
-        setBoxes(laidOut);
-        setPreviewUrl(objectUrl);
+        setDrawn({ boxes: laidOut, at });
+        showPreview(URL.createObjectURL(blob));
       } catch (error) {
         // Left unhandled this waited forever on a page that was never coming,
         // while the transcript happily said the edit had landed.
@@ -69,11 +79,8 @@ export function usePdfRender(doc: ResumeDoc) {
       }
     }, SETTLE_MS);
 
-    return () => {
-      window.clearTimeout(timer);
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    return () => window.clearTimeout(timer);
   }, [doc]);
 
-  return { boxes, failed };
+  return { boxes: drawn.boxes, drawnAt: drawn.at, failed };
 }

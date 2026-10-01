@@ -1,13 +1,14 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Assistant } from "@/components/assistant";
 import { EditorShell } from "@/components/editor-shell";
 import { PdfDropZone } from "@/components/pdf-drop-zone";
 import { ResumePane } from "@/components/resume-pane";
 import { ThreadSync } from "@/components/thread-sync";
 import { seedResume, type SeededResume } from "@/lib/store/resume";
+import { DEMO_MESSAGES } from "@/lib/dev/demo-thread";
 import { seedThread, useThreadStore } from "@/lib/store/thread";
 
 export type ThreadSeed = SeededResume & {
@@ -35,14 +36,36 @@ export function Editor({ seed }: { seed: ThreadSeed }) {
     if (typeof window === "undefined") return;
     if (useThreadStore.getState().id === id) return;
 
-    seedThread({ id, messages: seed.messages, addressed: Boolean(seed.id) });
+    seedThread({
+      id,
+      messages: demo() ? DEMO_MESSAGES : seed.messages,
+      addressed: Boolean(seed.id),
+    });
     seedResume({ ...seed, id });
   });
 
   return (
     <PdfDropZone>
       <ThreadSync />
+      {process.env.NODE_ENV === "development" ? <DemoSeed /> : null}
       <EditorShell sidebar={<Assistant />} pane={<ResumePane />} />
     </PdfDropZone>
   );
+}
+
+/**
+ * Development only: `/?demo` opens a sample conversation and the resume it
+ * edited, with its history to step through. The messages go in with the
+ * thread's first seed, since the chat reads them once at mount; the page and
+ * its history follow once the sample PDF has been read.
+ */
+const demo = () =>
+  process.env.NODE_ENV === "development" && new URLSearchParams(window.location.search).has("demo");
+
+function DemoSeed() {
+  useEffect(() => {
+    if (!demo()) return;
+    void import("@/lib/dev/demo-history").then(({ seedDemoHistory }) => seedDemoHistory());
+  }, []);
+  return null;
 }
