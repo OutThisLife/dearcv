@@ -1,6 +1,24 @@
 import { isEmptyResume, MAX_PDF_BYTES, resumeContentSchema } from "@/lib/resume/schema";
 import { authHeaders } from "@/lib/store/auth";
+import { boxIds } from "@/lib/resume/pdf-boxes";
+import { advanceHead } from "@/lib/resume/reading-head";
+import { useActivityStore } from "@/lib/store/activity";
 import { useResumeStore } from "@/lib/store/resume";
+
+/**
+ * Activity keys for the upload being read and then transcribed: nobody's tool
+ * call, but work on the whole page all the same.
+ */
+const READING = "reading";
+const CARRYING = "carrying";
+
+/**
+ * The upload being read, while it is. A message sent with the PDF attached
+ * goes out in the same moment the file starts being read; without this to
+ * wait on, the turn found no text yet, skipped the transcription, and the
+ * model was told the resume was empty while it sat open beside the chat.
+ */
+let reading: Promise<void> | null = null;
 
 export function isPdf(file: File) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -38,7 +56,11 @@ export async function ingestPdf(file: File) {
   store.setOriginalUrl(URL.createObjectURL(file));
   store.setSource(file, "");
   store.setIngesting(true);
+  // The page scans while it is being read, through to the transcription below.
+  useActivityStore.getState().work(READING, boxIds.page);
 
+  let done = () => {};
+  reading = new Promise((resolve) => (done = resolve));
   try {
     const { readPdf } = await import("@/lib/resume/read-pdf");
     const { text, look, layout } = await readPdf(await file.arrayBuffer());
@@ -62,6 +84,8 @@ export async function ingestPdf(file: File) {
     store.setError("Couldn't read that PDF. Tell me what's on it and I'll build from that.");
   } finally {
     store.setIngesting(false);
+    useActivityStore.getState().done(READING);
+    done();
   }
 }
 
@@ -78,9 +102,10 @@ let carrying: { source: string; done: Promise<void> } | null = null;
  * Failure is not worth an error. The chat can still carry the resume across
  * itself; this only makes it the exception.
  */
-export function ensureCarried(): Promise<void> {
+export async function ensureCarried(): Promise<void> {
+  await reading;
   const { doc, sourceText } = useResumeStore.getState();
-  if (!sourceText.trim() || !isEmptyResume(doc)) return Promise.resolve();
+  if (!sourceText.trim() || !isEmptyResume(doc)) return;
   if (carrying?.source === sourceText) return carrying.done;
 
   const attempt = {
@@ -95,15 +120,34 @@ export function ensureCarried(): Promise<void> {
 }
 
 async function carrySource(sourceText: string) {
+  const activity = useActivityStore.getState();
+  activity.work(CARRYING, boxIds.page);
   try {
     const res = await fetch("/api/carry", {
       method: "POST",
       headers: { "content-type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ sourceText }),
     });
-    if (!res.ok) return false;
+    if (!res.ok || !res.body) return false;
 
-    const { content } = (await res.json()) as { content?: unknown };
+    // Lines of JSON: where the model has got to, then the resume, or why not.
+    let content: unknown;
+    // Read by hand: Safari's streams are not async-iterable.
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let pending = "";
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      pending += read.value;
+      const complete = pending.split("\n");
+      pending = complete.pop() ?? "";
+      for (const line of complete) {
+        if (!line.trim()) continue;
+        const message = JSON.parse(line) as { at?: string; content?: unknown; error?: string };
+        if (message.at) follow(message.at);
+        if (message.content) content = message.content;
+        if (message.error) return false;
+      }
+    }
+
     const parsed = resumeContentSchema.safeParse(content);
     if (!parsed.success) return false;
     useResumeStore.getState().adoptContent(parsed.data, sourceText);
@@ -111,5 +155,26 @@ async function carrySource(sourceText: string) {
   } catch (error) {
     console.error("Background carry didn't land.", error);
     return false;
+  } finally {
+    activity.readTo(null);
+    activity.done(CARRYING);
   }
 }
+
+/**
+ * Moves the reading head on to wherever this text is on the uploaded page.
+ * Fed by anything copying the upload out a few words at a time: the
+ * background transcription, or — when that never landed — a whole-resume
+ * edit streaming in, which is otherwise a long silence.
+ */
+export function follow(text: string | undefined) {
+  const runs = useResumeStore.getState().layout?.runs;
+  if (!text || !runs?.length) return;
+  const { head, readTo } = useActivityStore.getState();
+  const next = advanceHead(runs, head ?? -1, text);
+  if (next >= 0 && next !== head) readTo(next);
+}
+
+/** Whether the upload is still being read into a document, for anything that says so. */
+export const useReading = () =>
+  useActivityStore((s) => READING in s.working || CARRYING in s.working);

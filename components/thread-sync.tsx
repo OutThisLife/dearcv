@@ -46,6 +46,9 @@ export function ThreadSync() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ threadId: id }),
         });
+        // 503 is this deployment saying it keeps no files at all, which is
+        // a setup, not a failure: the thread lives as long as the tab.
+        if (res.status === 503) return;
         if (!res.ok) throw new Error(`upload url: ${res.status}`);
 
         const { path, signedUrl } = (await res.json()) as { path: string; signedUrl: string };

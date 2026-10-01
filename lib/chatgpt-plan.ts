@@ -86,20 +86,29 @@ type ResponsesEvent = {
   type?: string;
   code?: string;
   message?: string;
-  response?: { error?: { code?: string; message?: string } | null };
+  output_index?: number;
+  item?: unknown;
+  response?: { output?: unknown[]; error?: { code?: string; message?: string } | null };
 };
 
 /**
  * The route only streams. A caller that asked for one JSON body — structured
  * output, say — gets the finished response the stream closes on, which is the
- * same object the non-streaming endpoint would have returned.
+ * same object the non-streaming endpoint would have returned. Except that on
+ * this route the closing event arrives with its output emptied: what was said
+ * only ever went by as items along the way, so the output is put back from
+ * those. Without it a transcription came back as nothing at all.
  */
 async function settle(res: Response) {
   let terminal: ResponsesEvent | undefined;
+  const items: unknown[] = [];
   for (const line of (await res.text()).split("\n")) {
     if (!line.startsWith("data:")) continue;
     try {
       const event = JSON.parse(line.slice(5)) as ResponsesEvent;
+      if (event.type === "response.output_item.done" && event.item) {
+        items[event.output_index ?? items.length] = event.item;
+      }
       if (event.type && TERMINAL_EVENTS.has(event.type)) terminal = event;
     } catch {
       // A keep-alive or a partial line; neither is the end of the response.
@@ -107,7 +116,9 @@ async function settle(res: Response) {
   }
 
   if (terminal?.type === "response.completed" || terminal?.type === "response.incomplete") {
-    return Response.json(terminal.response);
+    const response = terminal.response ?? {};
+    const output = response.output?.length ? response.output : items.filter(Boolean);
+    return Response.json({ ...response, output });
   }
   const error = terminal?.response?.error ??
     (terminal?.type === "error" ? { code: terminal.code, message: terminal.message } : null) ?? {
