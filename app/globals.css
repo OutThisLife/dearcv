@@ -93,6 +93,8 @@
   --shadow-composer: var(--composer-shadow);
   --shadow-composer-hover: var(--composer-shadow-hover);
   --shadow-composer-focus: var(--composer-shadow-focus);
+  /* transitions.dev's settle curve: quick off the mark, long soft landing. */
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-shimmer: shimmer-sweep var(--shimmer-duration, 1000ms) linear infinite both;
   @keyframes shimmer-sweep {
     from {
@@ -240,5 +242,189 @@
   body {
     @apply bg-background text-foreground font-serif;
     font-optical-sizing: auto;
+  }
+}
+
+/*
+ * The agent at work on the page (components/resume-activity.tsx), after
+ * pen.dev's canvas effects. Everything is in the logo's leaf.
+ */
+@layer components {
+  /* Something being worked on: a ring with two soft lights circling inside,
+     multiplied into the paper so the type over them stays black. */
+  .activity-ring {
+    border: 2px solid var(--brand-leaf);
+    overflow: hidden;
+  }
+
+  .activity-orbit {
+    translate: -50% -50%;
+    animation: activity-orbit 12.6s linear infinite;
+  }
+
+  .activity-light {
+    position: absolute;
+    top: 50%;
+    width: 80%;
+    height: 80%;
+    translate: -50% -50%;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--brand-leaf) 30%, transparent);
+    filter: blur(var(--orbit-blur));
+  }
+
+  /* A band that fades in toward a bright leading edge and sweeps down through
+     its box, then waits off the bottom for half a pass before the next. */
+  .activity-scan {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      color-mix(in oklab, var(--brand-leaf) 40%, transparent)
+    );
+    translate: 0 -100%;
+    animation: activity-scan var(--scan-ms) linear infinite;
+  }
+
+  /* Multiplied, like the glow: the type a ring or scan passes over stays black. */
+  .activity-flash,
+  .activity-ring,
+  .activity-head {
+    mix-blend-mode: multiply;
+  }
+
+  /* Figma's comment cursor: the pin it is about to drop, outlined and
+     haloed so it holds up over type, with its point — the bottom-left
+     corner — as the hotspot, so the pin lands exactly where it said. */
+  .comment-cursor {
+    cursor:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 21.5V12A9.5 9.5 0 1 1 12 21.5Z' fill='%23fff' stroke='%23fff' stroke-width='3.5' stroke-linejoin='round'/%3E%3Cpath d='M2.5 21.5V12A9.5 9.5 0 1 1 12 21.5Z' fill='%23fff' stroke='%230b0b0b' stroke-width='1.25' stroke-linejoin='round'/%3E%3Cpath d='M12 8.25v7.5M8.25 12h7.5' stroke='%230b0b0b' stroke-width='1.25' stroke-linecap='round'/%3E%3C/svg%3E")
+        3 21,
+      crosshair;
+  }
+
+  /* Trails down to the line the model has reached. Moves by transform when
+     it moves on, quick enough to keep up with a fast model. */
+  .activity-head {
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      color-mix(in oklab, var(--brand-leaf) 16%, transparent)
+    );
+    border-bottom: 1px solid color-mix(in oklab, var(--brand-leaf) 55%, transparent);
+    transition: transform 260ms var(--ease-smooth-out);
+  }
+
+  /* An edit landing. Keyframes cut to FLASH in lib/store/marks.ts: 200ms
+     attack, 400ms hold, 300ms release of 900ms. The ring closes in from wide
+     with a little overshoot, holds, and lets go drifting slightly back out. */
+  .activity-flash {
+    border-radius: var(--flash-radius);
+    overflow: hidden;
+    outline: 2px solid var(--brand-leaf);
+    animation: activity-flash var(--flash-ms) both;
+  }
+
+  /* Placed when it appears, flown after that, faded slowly once idle. */
+  .activity-cursor {
+    opacity: 0;
+    transition:
+      transform 900ms var(--ease-smooth-out),
+      opacity 1500ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  .activity-cursor[data-visible] {
+    opacity: 1;
+    transition:
+      transform 900ms var(--ease-smooth-out),
+      opacity 200ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  .activity-cursor[data-jump] {
+    transition: opacity 200ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  .activity-cursor-drift {
+    animation: activity-drift 6s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .activity-orbit,
+    .activity-cursor-drift {
+      animation: none;
+    }
+
+    .activity-scan {
+      display: none;
+    }
+
+    .activity-flash {
+      animation: none;
+      outline-offset: var(--flash-shift, 0px);
+    }
+
+    .activity-cursor,
+    .activity-cursor[data-visible] {
+      transition: opacity 200ms;
+    }
+
+    .activity-head {
+      transition: none;
+    }
+  }
+}
+
+@keyframes activity-orbit {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* From just above the box to just below it, then parked there for the
+   second half of the run, so a single pass ends off the box. */
+@keyframes activity-scan {
+  0% {
+    translate: 0 -100%;
+  }
+  50%,
+  100% {
+    translate: 0 100%;
+  }
+}
+
+@keyframes activity-flash {
+  0% {
+    outline-offset: calc(var(--flash-shift, 0px) + 30px);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  22.22%,
+  66.67% {
+    outline-offset: var(--flash-shift, 0px);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  100% {
+    outline-offset: calc(var(--flash-shift, 0px) + 3px);
+    opacity: 0;
+  }
+}
+
+@keyframes activity-drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  25% {
+    translate: 3px -2px;
+  }
+  50% {
+    translate: 0 -4px;
+  }
+  75% {
+    translate: -3px -1px;
   }
 }

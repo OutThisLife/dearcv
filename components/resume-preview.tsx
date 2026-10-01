@@ -3,12 +3,15 @@
 import { usePdfPages } from "@/hooks/use-pdf-pages";
 import { usePdfRender } from "@/hooks/use-pdf-render";
 import { PdfFileIcon } from "@/components/pdf-file-icon";
-import { ResumeMarks } from "@/components/resume-marks";
+import { ResumeHistory } from "@/components/resume-history";
+import { ResumeActivity } from "@/components/resume-activity";
+import { ResumeComments } from "@/components/resume-comments";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Thinking } from "@/components/ui/thinking";
-import { pickPdf } from "@/lib/resume/ingest";
+import { pickPdf, useReading } from "@/lib/resume/ingest";
 import { isEmptyResume } from "@/lib/resume/schema";
+import { useRevisions } from "@/lib/store/history";
 import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
 
@@ -18,8 +21,9 @@ export function ResumePreview() {
   const originalUrl = useResumeStore((s) => s.originalUrl);
   const previewUrl = useResumeStore((s) => s.previewUrl);
   const ingesting = useResumeStore((s) => s.ingesting);
+  const reading = useReading();
 
-  const { boxes, failed } = usePdfRender(doc);
+  const { boxes, drawnAt, failed } = usePdfRender(doc);
 
   // Their actual file, for as long as it is still what the document says. The
   // background transcription fills the document without flipping `touched`, so
@@ -27,6 +31,7 @@ export function ResumePreview() {
   const renderUrl = originalUrl && !touched ? originalUrl : previewUrl;
 
   const { hostRef, pages } = usePdfPages(renderUrl);
+  const stepping = useRevisions().revisions.length > 1;
 
   // Nothing to show and nothing coming. Reading this off renderUrl alone put
   // the whole drop zone back on screen while the first edit was still being
@@ -57,15 +62,18 @@ export function ResumePreview() {
             />
           </button>
         ) : renderUrl ? (
-          <div className="relative min-h-full w-full">
+          // Room under the last page for the history bar to float in, so it
+          // never has to sit over the end of the resume.
+          <div className={cn("relative min-h-full w-full", stepping && "pb-20")}>
             {/* The PDF is genuinely white paper, so knock it back at night the
                 way an e-reader does rather than firing a white slab at you.
-                The marks sit outside the filter so they stay their own colour. */}
+                The agent's marks sit outside the filter so they stay their own colour. */}
             <div
               ref={hostRef}
               className="w-full dark:brightness-[0.82] dark:contrast-[0.96] dark:sepia-[0.12]"
             />
-            <ResumeMarks boxes={boxes} pages={pages} />
+            <ResumeActivity boxes={boxes} drawnAt={drawnAt} pages={pages} />
+            <ResumeComments boxes={boxes} pages={pages} />
           </div>
         ) : failed ? (
           <EmptyState
@@ -79,14 +87,28 @@ export function ResumePreview() {
           </div>
         )}
       </div>
-      {ingesting &&
-        renderUrl && (
-          // Tint the page down to a ghost of itself. Leaving it legible invites
-          // you to read a document that's about to be replaced.
-          <div className="bg-background/90 animate-in fade-in absolute inset-0 grid place-items-center backdrop-blur-md duration-200">
-            <Thinking large label="Reading your resume" className="flex-col gap-3" />
-          </div>
-        )}
+      {reading && renderUrl ? (
+        // The page itself shows the reading — the line it has reached — so
+        // this only has to say what that is, out of the way at the top.
+        <Notice>
+          <Thinking label="Reading your resume" />
+        </Notice>
+      ) : null}
+      <ResumeHistory />
+    </div>
+  );
+}
+
+/** A word about what the pane is doing, floated at its top. */
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center">
+      {/* A flex row, not a line of text: inline, it sat on the page's 24px
+          line and the spinner rode low. The braille glyph carries its own
+          left bearing, so the left side takes less. */}
+      <div className="shadow-composer-focus animate-in fade-in slide-in-from-top-2 flex h-8 items-center rounded-full bg-(--composer-bg)/85 pr-3 pl-2.5 backdrop-blur-md duration-300">
+        {children}
+      </div>
     </div>
   );
 }

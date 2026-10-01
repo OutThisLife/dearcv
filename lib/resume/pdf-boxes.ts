@@ -1,3 +1,5 @@
+import type { ResumeDoc, ResumeSection } from "@/lib/resume/schema";
+
 /**
  * Where each part of the resume landed on the page.
  *
@@ -30,6 +32,8 @@ export type PdfBox = {
 export type PdfBoxes = Record<string, PdfBox>;
 
 export const boxIds = {
+  /** The whole document — a restyle, a rewrite, a read. Not a box of its own: every page. */
+  page: "page",
   basics: "basics",
   section: (id: string) => `section:${id}`,
   item: (id: string) => `item:${id}`,
@@ -43,7 +47,9 @@ export function readPdfBoxes(document: unknown): PdfBoxes {
       const x = dx + (node.box?.left ?? 0);
       const y = dy + (node.box?.top ?? 0);
 
-      if (node.props?.id && node.box) {
+      // A section or role that breaks across pages is laid out once per page
+      // it lands on. Where it starts is where it is.
+      if (node.props?.id && node.box && !boxes[node.props.id]) {
         boxes[node.props.id] = {
           page: index,
           x,
@@ -63,4 +69,60 @@ export function readPdfBoxes(document: unknown): PdfBoxes {
   });
 
   return boxes;
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The boxes that differ between two versions of a document, named the way an
+ * edit would have marked them — so stepping through history can show what
+ * each step changed as if it were happening again. Something that is gone has
+ * no box to point at, so its section, or whatever moved up into its place,
+ * stands in for it. A change of look touches every line, so it is the page.
+ */
+export function changedBoxes(from: ResumeDoc, to: ResumeDoc): string[] {
+  if (!same(from.theme, to.theme)) return [boxIds.page];
+
+  const changed = new Set<string>();
+  if (!same(from.basics, to.basics)) changed.add(boxIds.basics);
+
+  const was = new Map(from.sections.map((section) => [section.id, section]));
+  const kept = (sections: ResumeSection[], other: ResumeDoc) =>
+    sections.filter((section) => other.sections.some((one) => one.id === section.id));
+  const order = kept(to.sections, from).map((section) => section.id);
+  const before = kept(from.sections, to).map((section) => section.id);
+
+  to.sections.forEach((section) => {
+    const old = was.get(section.id);
+    const moved = order.indexOf(section.id) !== before.indexOf(section.id);
+    if (!old || moved || !same({ ...old, items: [] }, { ...section, items: [] })) {
+      changed.add(boxIds.section(section.id));
+      return;
+    }
+    const items = new Map(old.items.map((item) => [item.id, item]));
+    const lost = old.items.some((item) => !section.items.some((one) => one.id === item.id));
+    const reordered = !same(
+      old.items.map((item) => item.id).filter((id) => section.items.some((one) => one.id === id)),
+      section.items.map((item) => item.id).filter((id) => items.has(id)),
+    );
+    if (lost || reordered) {
+      changed.add(boxIds.section(section.id));
+      return;
+    }
+    section.items.forEach((item) => {
+      if (!same(items.get(item.id), item)) changed.add(boxIds.item(item.id));
+    });
+  });
+
+  // A section that went: point at what now sits where it was.
+  from.sections.forEach((section, i) => {
+    if (to.sections.some((one) => one.id === section.id)) return;
+    const next = from.sections
+      .slice(i + 1)
+      .concat(from.sections.slice(0, i).reverse())
+      .find((one) => to.sections.some((kept) => kept.id === one.id));
+    if (next) changed.add(boxIds.section(next.id));
+  });
+
+  return [...changed];
 }
