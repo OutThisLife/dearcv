@@ -43,7 +43,12 @@ export function restyle(theme: ResumeTheme, patch: Partial<ResumeTheme>): Resume
   if (patch.muted && patch.muted !== theme.muted)
     ts = eachStyle(ts, recolor(theme.muted, patch.muted));
   if (patch.accent && patch.accent !== theme.accent) {
-    ts = eachStyle(ts, recolor(theme.accent, patch.accent));
+    // Only what was set in the accent follows it — unless the accent was the
+    // text colour all along, as a black rule on black type is, in which case
+    // recolouring by it would turn the whole page.
+    if (theme.accent.toLowerCase() !== theme.text.toLowerCase()) {
+      ts = eachStyle(ts, recolor(theme.accent, patch.accent));
+    }
     if (ts.heading.rule)
       ts = { ...ts, heading: { ...ts.heading, rule: { ...ts.heading.rule, color: patch.accent } } };
   }
