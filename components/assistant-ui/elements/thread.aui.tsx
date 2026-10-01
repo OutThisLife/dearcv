@@ -1,6 +1,7 @@
 "use client";
 
 import { Composer, EditComposer } from "@/components/assistant-ui/elements/composer.aui";
+import { CommentActivity } from "@/components/comment-activity";
 import { AssistantMessage, UserMessage } from "@/components/assistant-ui/elements/message.aui";
 import {
   ThreadScrollToBottom,
@@ -105,6 +106,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({ isEmpty, aut
           >
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
+            <CommentActivity />
             <Composer autoFocus={autoFocus} />
             {/* Not gated on an empty composer: unmounting these on the first
                 keystroke pulls a row of gap out from under the composer. */}

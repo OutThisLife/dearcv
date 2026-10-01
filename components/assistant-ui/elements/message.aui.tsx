@@ -21,6 +21,7 @@ import {
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Thinking } from "@/components/ui/thinking";
 import { SCAFFOLD_BLOCK, SCAFFOLD_ROW } from "@/components/assistant-ui/elements/scaffold";
+import { placeOf, useCommentsStore } from "@/lib/comments";
 import { cn } from "@/lib/utils";
 import {
   ActionBarPrimitive,
@@ -30,6 +31,7 @@ import {
   MessagePrimitive,
   type FileMessagePartComponent,
   type ImageMessagePartComponent,
+  useAuiState,
 } from "@assistant-ui/react";
 import { ChevronLeftIcon, ChevronRightIcon, PencilIcon } from "lucide-react";
 import { useContext, type FC } from "react";
@@ -171,6 +173,41 @@ const UserImagePart: ImageMessagePartComponent = (part) => (
   </div>
 );
 
+/**
+ * A message left as a comment on the page carries its pin: the number, and
+ * the part of the resume it is on — tldraw tags a canvas ask with the shapes
+ * it came from the same way. Opens the pin's thread.
+ */
+function CommentTag() {
+  const commentId = useAuiState((s) => s.message.metadata?.custom?.commentId);
+  const comment = useCommentsStore((s) => s.comments.find((one) => one.id === commentId));
+  if (!comment) return null;
+  const place = placeOf(comment);
+
+  return (
+    <button
+      type="button"
+      data-comment
+      onPointerEnter={() => useCommentsStore.setState({ hover: comment.id })}
+      onPointerLeave={() => useCommentsStore.setState({ hover: null })}
+      onClick={() => {
+        useCommentsStore.getState().setOpen(comment.id);
+        document
+          .querySelector(`[data-comment-pin="${comment.id}"]`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }}
+      // Its own row across the message, not the bubble's column: in that it
+      // was only as wide as a short comment, and wrapped off its pin.
+      className="text-muted-foreground hover:text-foreground col-span-full flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 justify-self-end font-sans text-xs transition-colors"
+    >
+      <span className="bg-foreground text-background grid size-4 shrink-0 place-items-center rounded-full rounded-bl-none text-[9px] font-medium tabular-nums">
+        {comment.n}
+      </span>
+      <span className="truncate">{place ? `Comment on “${place}”` : "Comment on the page"}</span>
+    </button>
+  );
+}
+
 export const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -179,6 +216,8 @@ export const UserMessage: FC = () => {
       data-role="user"
     >
       <UserMessageAttachments />
+
+      <CommentTag />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
         <div className="aui-user-message-content peer bg-user-bubble text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">

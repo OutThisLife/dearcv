@@ -20,6 +20,8 @@ import type { ChatGptAvailability } from "@/lib/chatgpt";
 import { isEmptyResume } from "@/lib/resume/schema";
 import { providerLabel } from "@/lib/providers";
 import { authHeaders, useAuthStore, useIsAuthed } from "@/lib/store/auth";
+import { chatCommentWhere, commentsBrief } from "@/lib/comments";
+import { CommentChatLink } from "@/components/comment-chat-link";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -71,6 +73,9 @@ export function Assistant() {
           doc,
           // The upload only matters until it becomes the document.
           sourceText: isEmptyResume(doc) ? sourceText : "",
+          comments: commentsBrief(),
+          // Set while the chat is answering a comment: where its pin is.
+          comment: chatCommentWhere(),
         };
       },
     }),
@@ -80,6 +85,7 @@ export function Assistant() {
     <AssistantRuntimeProvider runtime={runtime}>
       <AuthBootstrap />
       <ResumeTools />
+      <CommentChatLink />
       <AddressThread />
       <ComposerDraft />
       <AuthDialog />
@@ -105,8 +111,13 @@ export function Assistant() {
  * that is worth keeping.
  */
 function AddressThread() {
+  // Answered here, that is: a thread opened with replies already in it is
+  // either addressed already or the dev demo, which should never be saved.
+  const [seeded] = useState(() => useThreadStore.getState().initialMessages.length);
   const answered = useAuiState((s) =>
-    s.thread.messages.some((message) => message.role === "assistant" && message.content.length > 0),
+    s.thread.messages
+      .slice(seeded)
+      .some((message) => message.role === "assistant" && message.content.length > 0),
   );
 
   useEffect(() => {
