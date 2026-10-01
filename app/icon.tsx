@@ -1,8 +1,7 @@
-import { markTile } from "@/lib/brand-tile";
+import { letterSvg } from "@/lib/brand-tile";
 
-export const size = { width: 64, height: 64 };
-export const contentType = "image/png";
+export const contentType = "image/svg+xml";
 
 export default function Icon() {
-  return markTile(size.width, { rounded: true });
+  return new Response(letterSvg(), { headers: { "content-type": contentType } });
 }
