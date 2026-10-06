@@ -22,6 +22,7 @@ import { providerLabel } from "@/lib/providers";
 import { authHeaders, useAuthStore, useIsAuthed } from "@/lib/store/auth";
 import { chatCommentWhere, commentsBrief } from "@/lib/comments";
 import { CommentChatLink } from "@/components/comment-chat-link";
+import { historyBrief } from "@/lib/store/history";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -76,6 +77,8 @@ export function Assistant() {
           comments: commentsBrief(),
           // Set while the chat is answering a comment: where its pin is.
           comment: chatCommentWhere(),
+          // Set while they are looking at an earlier step: what they took back.
+          undone: historyBrief(),
         };
       },
     }),

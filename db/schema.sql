@@ -16,6 +16,10 @@ create table if not exists threads (
 -- connected, and stays reachable by its link alone.
 alter table threads add column if not exists owner_id text;
 
+-- The steps the resume went through, each with the request that made it, and
+-- which one is on the page — so undo and redo survive a reload.
+alter table threads add column if not exists history jsonb;
+
 -- Nothing looks a thread up by anything but its id, so this is the only index
 -- worth having: for sweeping abandoned threads later.
 create index if not exists threads_updated_at_idx on threads (updated_at);

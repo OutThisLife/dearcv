@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { HISTORY_LIMIT, type StoredHistory } from "@/lib/resume/history";
 import { changedBoxes } from "@/lib/resume/pdf-boxes";
 import type { ResumeDoc } from "@/lib/resume/schema";
 import { useActivityStore } from "@/lib/store/activity";
@@ -33,8 +34,11 @@ export type Revision = {
 /** The message an edit is answering. */
 export type Ask = { id: string; text: string };
 
-/** Plenty to wander back through, without holding every draft of a long session. */
-const LIMIT = 100;
+/**
+ * What is kept of it with the thread. Well under what the thread route takes,
+ * so a long session sheds its oldest steps rather than failing to save.
+ */
+const HISTORY_BYTES = 3 * 1024 * 1024;
 
 type HistoryState = {
   revisions: Revision[];
@@ -107,7 +111,7 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
       changes: [change],
       request: ask?.id,
     };
-    const next = [...revisions.slice(0, at + 1), step].slice(-LIMIT);
+    const next = [...revisions.slice(0, at + 1), step].slice(-HISTORY_LIMIT);
     set({ revisions: next, at: next.length - 1 });
   },
   go: (to) => {
@@ -125,6 +129,51 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
     set({ at: to });
   },
 }));
+
+/**
+ * The history as it is saved with the thread, or null when there is none for
+ * the resume on screen — a fresh start, or one left over from another upload,
+ * which must not be written over this one's.
+ */
+export function storedHistory(): StoredHistory | null {
+  const { revisions, at, owner } = useHistoryStore.getState();
+  if (revisions.length < 2 || owner !== documentKey()) return null;
+
+  // Oldest first, never the step on the page.
+  let from = 0;
+  while (from < at && JSON.stringify(revisions.slice(from)).length > HISTORY_BYTES) from++;
+  return { revisions: revisions.slice(from), at: at - from };
+}
+
+/**
+ * A reopened thread's history, put back before anything renders. Filed under
+ * the resume as it is now addressed — its stored file rather than the blob it
+ * was uploaded as — so the first edit after a reload adds to it instead of
+ * starting over, and an edit from a step stepped back to still branches.
+ */
+export function seedHistory(history: StoredHistory | null | undefined) {
+  const revision = history?.revisions[history.at];
+  if (!history || !revision) return;
+  useHistoryStore.setState({ revisions: history.revisions, at: history.at, owner: documentKey() });
+  // Saved alongside the page, so it is the one on it: stepped back to the
+  // original, the original is what shows again.
+  useResumeStore.setState({ touched: revision.touched });
+}
+
+/**
+ * For the chat, while they are looking at an earlier step: what they took
+ * back. The page it is sent is the truth either way; this is so "put that
+ * back" means something, and so a change it made earlier in the conversation
+ * that is missing from the page reads as undone rather than lost.
+ */
+export function historyBrief() {
+  const { revisions, at, owner } = useHistoryStore.getState();
+  if (owner !== documentKey() || at >= revisions.length - 1) return "";
+  return revisions
+    .slice(at + 1)
+    .map((revision) => `- ${JSON.stringify(revision.label)}`)
+    .join("\n");
+}
 
 /**
  * The revisions of the resume on screen. Another upload or thread leaves the

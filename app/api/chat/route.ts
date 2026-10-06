@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     sourceText,
     comment,
     comments,
+    undone,
   }: {
     id?: string;
     threadId?: string;
@@ -46,6 +47,8 @@ export async function POST(req: Request) {
     comment?: unknown;
     /** The page's open comments, told to the chat. */
     comments?: unknown;
+    /** The steps they stepped back past, while looking at an earlier one. */
+    undone?: unknown;
   } = await req.json();
 
   if (!Array.isArray(messages)) {
@@ -67,7 +70,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: llm.model,
     messages: await convertToModelMessages(messages),
-    instructions: chatPrompt({ doc, sourceText, comment, comments }),
+    instructions: chatPrompt({ doc, sourceText, comment, comments, undone }),
     abortSignal: req.signal,
     // Frontend tools have no execute, so they end the loop on their own. The
     // budget is for chained server tools: search, then fetch each good hit.

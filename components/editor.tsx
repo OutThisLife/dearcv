@@ -9,12 +9,15 @@ import { ResumePane } from "@/components/resume-pane";
 import { ThreadSync } from "@/components/thread-sync";
 import { seedResume, type SeededResume } from "@/lib/store/resume";
 import { DEMO_MESSAGES } from "@/lib/dev/demo-thread";
+import type { StoredHistory } from "@/lib/resume/history";
+import { seedHistory } from "@/lib/store/history";
 import { seedThread, useThreadStore } from "@/lib/store/thread";
 
 export type ThreadSeed = SeededResume & {
   /** Absent for a new thread, which gets one in the browser. */
   id?: string;
   messages?: UIMessage[];
+  history?: StoredHistory | null;
 };
 
 export function Editor({ seed }: { seed: ThreadSeed }) {
@@ -42,6 +45,8 @@ export function Editor({ seed }: { seed: ThreadSeed }) {
       addressed: Boolean(seed.id),
     });
     seedResume({ ...seed, id });
+    // After the resume, since it is filed under the resume it belongs to.
+    seedHistory(seed.history);
   });
 
   return (

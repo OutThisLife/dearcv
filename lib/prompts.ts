@@ -129,16 +129,29 @@ const COMMENT_TEXT = `Their latest message was left as a comment pinned to a spo
 /** For the chat, when there are comments on the page it did not write. */
 const COMMENTS_TEXT = `They have left comments pinned on the page. Each comment has its own agent working on it, apart from this chat; the edits they made are already in the document above. When they ask about a comment by its number or what it said, this is what each was asked and how it went. Don't redo a comment's work unless they ask you to.`;
 
+/**
+ * For a turn taken while they are looking at an earlier step of the page's
+ * history. The page they see is the one in the snapshot, and the conversation
+ * still holds the requests they stepped back past — so without this the
+ * model reads its own earlier edits as already made, or as lost.
+ */
+const UNDONE_TEXT = `They stepped back through the page's history before sending this, so the resume above is an earlier version. These later changes were undone and are not on the page, even though the conversation shows them being made:`;
+
+const UNDONE_RULES = `- Work from the page as it is now. Don't reapply an undone change unless they ask for it back ("put that back", "redo that").
+- Whatever you change now replaces the undone steps: they are dropped from the history. Don't mention the history or the undo unless they bring it up.`;
+
 export function chatPrompt(input: {
   doc?: unknown;
   sourceText?: unknown;
   comment?: unknown;
   comments?: unknown;
+  undone?: unknown;
 }) {
   const parsed = resumeDocSchema.safeParse(input.doc);
   const sourceText = typeof input.sourceText === "string" ? input.sourceText : "";
   const comment = typeof input.comment === "string" ? input.comment.trim() : "";
   const comments = typeof input.comments === "string" ? input.comments.trim() : "";
+  const undone = typeof input.undone === "string" ? input.undone.trim().slice(0, 4000) : "";
 
   return [
     INSTRUCTION,
@@ -146,6 +159,9 @@ export function chatPrompt(input: {
       role: "system" as const,
       content: resumeContext(parsed.success ? parsed.data : null, sourceText),
     },
+    ...(undone
+      ? [{ role: "system" as const, content: `${UNDONE_TEXT}\n${undone}\n\n${UNDONE_RULES}` }]
+      : []),
     ...(comment
       ? [{ role: "system" as const, content: `${COMMENT_TEXT}\n\nWhere it is pinned:\n${comment}` }]
       : []),

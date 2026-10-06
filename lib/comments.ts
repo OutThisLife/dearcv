@@ -16,7 +16,7 @@ import { useActivityStore } from "@/lib/store/activity";
 import { authHeaders } from "@/lib/store/auth";
 import { changedBoxes } from "@/lib/resume/pdf-boxes";
 import { partsChanged, restoreParts } from "@/lib/resume/revert";
-import { documentKey, useHistoryStore } from "@/lib/store/history";
+import { documentKey, historyBrief, useHistoryStore } from "@/lib/store/history";
 import { useMarksStore } from "@/lib/store/marks";
 import { useResumeStore } from "@/lib/store/resume";
 
@@ -231,6 +231,7 @@ function chatFor(id: string) {
           sourceText: isEmptyResume(doc) ? sourceText : "",
           tools: toolSchemas(),
           comment: commentOf(id)?.where ?? "",
+          undone: historyBrief(),
         };
       },
     }),

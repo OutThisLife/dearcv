@@ -1,14 +1,18 @@
 import { z } from "zod";
 import { canPersist, isThreadId, saveResume } from "@/lib/db";
 import { SOURCE_CHARS } from "@/lib/prompts";
+import { historySchema } from "@/lib/resume/history";
 import { resumeDocSchema } from "@/lib/resume/schema";
 import { readViewer } from "@/lib/session";
 
 /**
- * A resume is a couple of pages of text. Anything approaching this is not one,
- * and the bound is what stops a row from being used as free storage.
+ * A resume is a couple of pages of text, and its history a hundred of those at
+ * most. Anything approaching this is not one, and the bound is what stops a
+ * row from being used as free storage. The browser trims the oldest steps to
+ * stay under it (`HISTORY_BYTES`), so this only ever turns away a payload
+ * nobody's editor sent.
  */
-const MAX_BYTES = 256 * 1024;
+const MAX_BYTES = 4 * 1024 * 1024;
 
 const readJson = (raw: string): unknown => {
   try {
@@ -41,6 +45,7 @@ const body = (threadId: string) =>
     sourceText: z.string().max(SOURCE_CHARS).default(""),
     sourceName: z.string().max(256).default(""),
     pdfPath: storedFile(threadId).nullable().default(null),
+    history: historySchema.nullable().default(null),
   });
 
 /**

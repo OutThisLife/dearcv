@@ -30,6 +30,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ threadI
         sourceText: thread.sourceText,
         sourceName: thread.sourceName,
         pdfPath: thread.pdfPath,
+        history: thread.history,
       }}
     />
   );

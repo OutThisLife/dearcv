@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
+import { storedHistory, useHistoryStore } from "@/lib/store/history";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
 /** Long enough to swallow a burst of tool edits, short enough to survive a tab close. */
 const SETTLE_MS = 800;
+
+/** Under the 64KB the browser allows a request that outlives its page. */
+const KEEPALIVE_BYTES = 60_000;
 
 /**
  * Gives a thread an address once it is worth keeping, then writes the resume
@@ -83,11 +87,20 @@ export function ThreadSync() {
     let timer = 0;
     const save = () => {
       const { doc, sourceText, sourceName, pdfPath } = useResumeStore.getState();
+      const body = JSON.stringify({
+        doc,
+        sourceText,
+        sourceName,
+        pdfPath,
+        history: storedHistory(),
+      });
       void fetch(`/api/thread/${id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ doc, sourceText, sourceName, pdfPath }),
-        keepalive: true,
+        body,
+        // Lets a save outlive a closing tab, but the browser refuses a
+        // keepalive body over 64KB outright — which a long history passes.
+        keepalive: body.length < KEEPALIVE_BYTES,
       }).catch(() => undefined);
     };
 
@@ -99,10 +112,14 @@ export function ThreadSync() {
     // The first write is what creates the row, so it does not wait.
     save();
 
+    // Stepping back is a change worth keeping too: a reload lands on the step
+    // they were looking at, with the ones after it still there to redo.
     const unsubscribe = useResumeStore.subscribe(schedule);
+    const unsubscribeHistory = useHistoryStore.subscribe(schedule);
     return () => {
       window.clearTimeout(timer);
       unsubscribe();
+      unsubscribeHistory();
     };
   }, [addressed, id]);
 

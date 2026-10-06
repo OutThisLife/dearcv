@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import postgres from "postgres";
+import { historySchema, type StoredHistory } from "@/lib/resume/history";
 import { resumeDocSchema, type ResumeDoc } from "@/lib/resume/schema";
 
 /**
@@ -31,6 +32,8 @@ export type StoredThread = {
   /** Where the PDF sits in the bucket. Not a URL: the bucket is private, so
    *  every read is signed at the moment it is asked for. */
   pdfPath: string | null;
+  /** The steps the resume went through, so undo survives a reload. */
+  history: StoredHistory | null;
   messages: UIMessage[];
   /** Null for a thread that only its link protects. */
   ownerId: string | null;
@@ -40,20 +43,23 @@ export async function loadThread(id: string): Promise<StoredThread | null> {
   if (!sql || !isThreadId(id)) return null;
 
   const [row] = await sql`
-    select doc, source_text, source_name, pdf_path, messages, owner_id
+    select doc, source_text, source_name, pdf_path, history, messages, owner_id
     from threads where id = ${id}
   `;
   if (!row) return null;
 
   // A schema change shouldn't strand someone on a dead link, so a document we
-  // can no longer read comes back as an empty one rather than an error.
+  // can no longer read comes back as an empty one rather than an error — and
+  // a history we can no longer read as none, which costs only the undo.
   const doc = resumeDocSchema.safeParse(row.doc);
+  const history = historySchema.safeParse(row.history);
   return {
     id,
     doc: doc.success ? doc.data : null,
     sourceText: row.source_text ?? "",
     sourceName: row.source_name ?? "",
     pdfPath: row.pdf_path ?? null,
+    history: history.success ? history.data : null,
     messages: Array.isArray(row.messages) ? (row.messages as UIMessage[]).map(identify) : [],
     ownerId: row.owner_id ?? null,
   };
@@ -85,20 +91,23 @@ export const mayRead = (thread: StoredThread, viewer: string | null) =>
 /** The resume half, written by the editor as it changes. */
 export async function saveResume(
   id: string,
-  resume: Pick<StoredThread, "doc" | "sourceText" | "sourceName" | "pdfPath">,
+  resume: Pick<StoredThread, "doc" | "sourceText" | "sourceName" | "pdfPath" | "history">,
   owner: string | null,
 ) {
   if (!sql || !isThreadId(id)) return false;
 
   const rows = await sql`
-    insert into threads (id, doc, source_text, source_name, pdf_path, owner_id)
+    insert into threads (id, doc, source_text, source_name, pdf_path, history, owner_id)
     values (${id}, ${sql.json(resume.doc)}, ${resume.sourceText},
-            ${resume.sourceName}, ${resume.pdfPath}, ${owner})
+            ${resume.sourceName}, ${resume.pdfPath},
+            ${resume.history ? sql.json(resume.history as unknown as postgres.JSONValue) : null},
+            ${owner})
     on conflict (id) do update set
       doc = excluded.doc,
       source_text = excluded.source_text,
       source_name = excluded.source_name,
       pdf_path = excluded.pdf_path,
+      history = excluded.history,
       updated_at = now()
     where threads.owner_id is null or threads.owner_id = excluded.owner_id
     returning id
