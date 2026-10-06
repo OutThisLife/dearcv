@@ -194,21 +194,16 @@ export function ResumeBrush({ pages }: { pages: PageBox[] }) {
 
 /**
  * P and H pick up a tool, or put it down if it is already in hand; Escape puts
- * it down. A letter belongs to a field only while something is typed in it —
- * the chat's box has focus from the moment the page opens, as the history
- * bar's keys found.
+ * it down. Never from a field: a letter is a character first, and taking it
+ * from an empty one ate the first letter of every message that began with it
+ * ("punch this up" went in as "unch this up"). The toolbar has the tools for
+ * when the chat's box has focus.
  */
 function useBrushKeys() {
   useEffect(() => {
-    const typing = (target: EventTarget | null) => {
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        return target.value.length > 0;
-      }
-      if (target instanceof HTMLElement && target.isContentEditable) {
-        return Boolean(target.textContent?.length);
-      }
-      return target instanceof HTMLSelectElement;
-    };
+    const editable = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
     const onKey = (event: globalThis.KeyboardEvent) => {
       const store = useBrushStore.getState();
@@ -221,7 +216,7 @@ function useBrushKeys() {
         event.ctrlKey ||
         event.altKey ||
         event.isComposing ||
-        typing(event.target)
+        editable(event.target)
       )
         return;
       const key = event.key.toLowerCase();
