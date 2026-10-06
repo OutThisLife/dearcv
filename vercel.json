@@ -1,4 +1,5 @@
 {
+  "buildCommand": "node db/migrate.mjs && next build",
   "crons": [
     {
       "path": "/api/cron/sweep",
