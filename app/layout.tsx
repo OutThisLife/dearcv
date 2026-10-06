@@ -23,13 +23,11 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 /**
- * Vercel sets VERCEL_PROJECT_PRODUCTION_URL on every deployment, so previews
- * and production both resolve their own images rather than pointing at
- * whatever localhost Next falls back to.
+ * Where share cards and absolute URLs point. Every Vercel deployment uses the
+ * real domain — the bare one redirects to www, so www is the canonical name.
+ * Locally, the dev server.
  */
-const origin = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  : "http://localhost:3000";
+const origin = process.env.VERCEL ? "https://www.dearcv.ai" : "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(origin),
