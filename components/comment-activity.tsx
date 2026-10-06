@@ -37,7 +37,7 @@ export function CommentActivity() {
   return (
     <div
       data-comment
-      className="shadow-composer animate-in fade-in slide-in-from-bottom-1 flex flex-col overflow-hidden rounded-(--composer-radius) bg-(--composer-bg) py-1 font-sans duration-200"
+      className="shadow-composer animate-in fade-in slide-in-from-bottom-1 flex flex-col overflow-hidden rounded-(--composer-radius) bg-(--composer-bg) py-1 font-sans duration-200 motion-reduce:animate-none"
     >
       {comments.map((comment) => (
         <Line key={comment.id} comment={comment} reading={reading} open={open === comment.id} />

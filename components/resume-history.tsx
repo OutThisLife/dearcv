@@ -1,7 +1,7 @@
 "use client";
 
 import { Redo2Icon, Undo2Icon } from "lucide-react";
-import { type CSSProperties, type ReactNode, useEffect, useRef } from "react";
+import { type CSSProperties, useEffect, useRef } from "react";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePresence } from "@/hooks/use-presence";
@@ -11,35 +11,62 @@ import { cn } from "@/lib/utils";
 
 /** Past this many, dots stop being countable at a glance and a number reads better. */
 const MAX_DOTS = 14;
-/** transitions.dev's toast clock: in on the slower beat, out on the quicker. */
-const EXIT_MS = 250;
-/** Its text swap: long enough to read as a change, short enough to keep up with ⌘Z held down. */
-const SWAP_MS = 120;
+/** assistant-ui's exit beat: the quicker of its two. */
+const EXIT_MS = 150;
+/** The label's swap out, on the same beat, so a held key never outruns it. */
+const SWAP_MS = 150;
 /** Each dot's slot, and the width of the bar that marks the current one. */
-const SLOT = 12;
-const BAR = 14;
+const SLOT = 10;
+const BAR = 12;
 /**
  * How far a tip stands off its trigger to clear the top of the bar rather
  * than sit over it: from the label's top and the dots' top to the bar's edge,
  * plus the usual gap.
  */
-const LABEL_CLEAR = 15;
-const DOT_CLEAR = 33;
+const LABEL_CLEAR = 12;
+const DOT_CLEAR = 24;
+
+/** Whether focus is in something that takes typing. */
+const editable = (target: EventTarget | null): target is HTMLElement =>
+  target instanceof HTMLInputElement ||
+  target instanceof HTMLTextAreaElement ||
+  target instanceof HTMLSelectElement ||
+  (target instanceof HTMLElement && target.isContentEditable);
 
 /**
- * Whether ⌘Z belongs to the field rather than the resume: only while there
- * is something typed in it to take back. The chat's box has focus from the
- * moment the page opens, so leaving every focused field its own ⌘Z meant
- * undo almost never reached the resume at all.
+ * Whether a key belongs to the field rather than the resume: only while there
+ * is something typed in it to take back or move through. The chat's box has
+ * focus from the moment the page opens, so leaving every focused field its
+ * own keys meant they almost never reached the resume at all.
  */
 const typing = (target: EventTarget | null) => {
-  if (!(target instanceof HTMLElement)) return false;
+  if (!editable(target)) return false;
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
     return target.value.length > 0;
   }
   if (target.isContentEditable) return Boolean(target.textContent?.length);
-  return target.tagName === "SELECT";
+  return true;
 };
+
+/**
+ * Which way a key steps through history, if it does: ⌘Z / ⇧⌘Z / ⌘Y as
+ * anywhere else, and bare ← → [ ] for walking through it. A bracket is a
+ * character, so it is never taken from a field; an arrow only from one with
+ * nothing in it to move through.
+ */
+function stepOf(event: KeyboardEvent) {
+  const key = event.key.toLowerCase();
+  if (event.metaKey || event.ctrlKey) {
+    if (event.altKey || typing(event.target)) return 0;
+    return key === "z" ? (event.shiftKey ? 1 : -1) : key === "y" ? 1 : 0;
+  }
+  if (event.altKey || event.shiftKey) return 0;
+  if (key === "[" || key === "]") return editable(event.target) ? 0 : key === "]" ? 1 : -1;
+  if (key === "arrowleft" || key === "arrowright") {
+    return typing(event.target) ? 0 : key === "arrowright" ? 1 : -1;
+  }
+  return 0;
+}
 
 /**
  * The frosted surface the bar and its buttons share, so they read as one
@@ -49,12 +76,13 @@ const typing = (target: EventTarget | null) => {
 const SURFACE = "shadow-composer-focus bg-(--composer-bg)/85 backdrop-blur-md";
 
 /**
- * As tall as the bar, so they cap it rather than orbit it. A step that isn't
- * there dims only its arrow: fading the whole button would let the page show
+ * As tall as the bar, so they cap it rather than orbit it, and as tall as the
+ * header's buttons, so it reads as the same chrome. A step that isn't there
+ * dims only its arrow: fading the whole button would let the page show
  * through the one disc that stays.
  */
 const CIRCLE =
-  "size-11 rounded-full disabled:opacity-100 disabled:[&_svg]:opacity-30 [&_svg]:transition-opacity";
+  "size-7 rounded-full disabled:opacity-100 disabled:[&_svg]:opacity-30 [&_svg]:transition-opacity [&_svg]:duration-200";
 
 /**
  * Steps through every version of the resume this session, like flicking
@@ -62,6 +90,9 @@ const CIRCLE =
  * version's name between them, a dot for each to jump straight to. It floats
  * over the paper rather than living in the header because it is about the
  * page underneath, and only rises in once there is a step to take back.
+ *
+ * Moves the way the chat beside it does: in as one piece on assistant-ui's
+ * message entrance, out on its quicker beat, everything inside on its curve.
  */
 export function ResumeHistory() {
   const live = useRevisions();
@@ -75,19 +106,18 @@ export function ResumeHistory() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || typing(event.target)) return;
-      const key = event.key.toLowerCase();
-      const step = key === "z" ? (event.shiftKey ? 1 : -1) : key === "y" ? 1 : 0;
+      if (event.defaultPrevented || event.isComposing) return;
+      const step = stepOf(event);
       if (!step) return;
       // Read at the keypress: the listener outlives any one render.
-      const { at: now, revisions: all } = useHistoryStore.getState();
+      const { at: now, revisions: all, go: to } = useHistoryStore.getState();
       if (!all[now + step]) return;
       event.preventDefault();
-      go(now + step);
+      to(now + step);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go]);
+  }, []);
 
   if (!mounted) return null;
 
@@ -96,33 +126,32 @@ export function ResumeHistory() {
       <div
         role="group"
         aria-label="Resume history"
-        className="pointer-events-auto flex items-center gap-2 font-sans"
+        className={cn(
+          "pointer-events-auto flex items-center gap-1.5 font-sans",
+          "animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+          closing &&
+            "animate-out fade-out slide-out-to-bottom-1 fill-mode-forwards duration-150 motion-reduce:animate-none",
+        )}
       >
-        <Side side="start" closing={closing}>
-          <TooltipIconButton
-            tooltip="Undo · ⌘Z"
-            side="top"
-            className={cn(SURFACE, CIRCLE)}
-            disabled={at === 0}
-            onClick={() => go(at - 1)}
-          >
-            <Undo2Icon className="size-4" />
-          </TooltipIconButton>
-        </Side>
+        <TooltipIconButton
+          tooltip="Undo · ← or ⌘Z"
+          side="top"
+          className={cn(SURFACE, CIRCLE)}
+          disabled={at === 0}
+          onClick={() => go(at - 1)}
+        >
+          <Undo2Icon className="size-3.5" />
+        </TooltipIconButton>
 
         <div
           className={cn(
             SURFACE,
-            "flex h-11 w-48 flex-col items-center justify-center gap-0.5 rounded-full px-4",
-            // transitions.dev's toast: rises, sharpens and grows the last 3% into place.
-            "ease-smooth-out transition-[opacity,translate,scale,filter] duration-350 motion-reduce:transition-none",
-            "starting:translate-y-4 starting:scale-97 starting:opacity-0 starting:blur-[2px]",
-            closing && "translate-y-4 scale-97 opacity-0 blur-[2px] duration-250",
+            "flex h-7 w-40 flex-col items-center justify-center gap-px rounded-full px-3.5",
           )}
         >
           <Label revisions={revisions} at={at} />
           {revisions.length > MAX_DOTS ? (
-            <span className="text-muted-foreground text-[0.6875rem] leading-3 tabular-nums">
+            <span className="text-muted-foreground text-[0.625rem] leading-2.5 tabular-nums">
               {at + 1} / {revisions.length}
             </span>
           ) : (
@@ -130,52 +159,25 @@ export function ResumeHistory() {
           )}
         </div>
 
-        <Side side="end" closing={closing}>
-          <TooltipIconButton
-            tooltip="Redo · ⇧⌘Z"
-            side="top"
-            className={cn(SURFACE, CIRCLE)}
-            disabled={at === revisions.length - 1}
-            onClick={() => go(at + 1)}
-          >
-            <Redo2Icon className="size-4" />
-          </TooltipIconButton>
-        </Side>
+        <TooltipIconButton
+          tooltip="Redo · → or ⇧⌘Z"
+          side="top"
+          className={cn(SURFACE, CIRCLE)}
+          disabled={at === revisions.length - 1}
+          onClick={() => go(at + 1)}
+        >
+          <Redo2Icon className="size-3.5" />
+        </TooltipIconButton>
       </div>
     </div>
   );
 }
 
 /**
- * Undo and redo slide out from behind the bar once it has landed, and tuck
- * back behind it on the way out, so the three arrive as one thing opening up
- * rather than three things appearing.
+ * The version's name, swapped the way it was stepped: forward nudges left,
+ * back nudges right — two pixels and a fade, like a reasoning block opening,
+ * not a slide.
  */
-function Side({
-  side,
-  closing,
-  children,
-}: {
-  side: "start" | "end";
-  closing: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "ease-smooth-out transition-[opacity,translate,scale,filter] delay-75 duration-350 motion-reduce:transition-none",
-        "starting:scale-60 starting:opacity-0 starting:blur-xs",
-        side === "start" ? "starting:translate-x-6" : "starting:-translate-x-6",
-        closing && "scale-60 opacity-0 blur-xs delay-0 duration-200",
-        closing && (side === "start" ? "translate-x-6" : "-translate-x-6"),
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-/** The version's name, swapped the way it was stepped: forward slides left, back slides right. */
 function Label({ revisions, at }: { revisions: Revision[]; at: number }) {
   const { shown, phase } = useSwap(at, SWAP_MS);
   const from = useRef(at);
@@ -196,10 +198,10 @@ function Label({ revisions, at }: { revisions: Revision[]; at: number }) {
             data-phase={phase}
             style={{ "--dir": direction.current } as CSSProperties}
             className={cn(
-              "text-foreground block max-w-full truncate text-xs leading-4 font-medium",
-              "transition-[opacity,translate,filter] duration-120 ease-in-out motion-reduce:transition-none",
-              "data-[phase=exit]:translate-x-[calc(var(--dir)*-0.375rem)] data-[phase=exit]:opacity-0 data-[phase=exit]:blur-xs",
-              "data-[phase=enter]:translate-x-[calc(var(--dir)*0.375rem)] data-[phase=enter]:opacity-0 data-[phase=enter]:blur-xs data-[phase=enter]:transition-none",
+              "text-foreground block max-w-full truncate text-[0.6875rem] leading-3 font-medium",
+              "ease-aui transition-[opacity,translate] duration-150 motion-reduce:transition-none",
+              "data-[phase=exit]:translate-x-[calc(var(--dir)*-0.125rem)] data-[phase=exit]:opacity-0",
+              "data-[phase=enter]:translate-x-[calc(var(--dir)*0.125rem)] data-[phase=enter]:opacity-0 data-[phase=enter]:transition-none",
             )}
           />
         }
@@ -231,9 +233,8 @@ function RevisionTip({ revision, clear }: { revision: Revision; clear: number })
 }
 
 /**
- * A dot per version and one bar that slides between them (transitions.dev's
- * sliding tab pill), so the eye follows the step instead of hunting for which
- * dot lit up.
+ * A dot per version and one bar that slides between them, so the eye follows
+ * the step instead of hunting for which dot lit up.
  */
 function Dots({
   revisions,
@@ -248,7 +249,7 @@ function Dots({
     <div className="relative flex items-center">
       <span
         aria-hidden
-        className="bg-foreground ease-smooth-out pointer-events-none absolute top-1/2 left-0 h-1.5 -translate-y-1/2 rounded-full transition-transform duration-250 motion-reduce:transition-none"
+        className="bg-foreground ease-aui pointer-events-none absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full transition-transform duration-200 motion-reduce:transition-none"
         style={{ width: BAR, transform: `translateX(${at * SLOT + (SLOT - BAR) / 2}px)` }}
       />
       {revisions.map((revision, i) => (
@@ -261,12 +262,12 @@ function Dots({
                 aria-current={i === at ? "step" : undefined}
                 onClick={() => go(i)}
                 style={{ width: SLOT }}
-                className="group grid h-3 cursor-pointer place-items-center"
+                className="group grid h-2 cursor-pointer place-items-center"
               />
             }
           >
-            {/* Hover lands at once and lets go slowly, so skimming the row never lags the pointer. */}
-            <span className="bg-foreground/25 group-hover:bg-foreground/60 block size-1.5 rounded-full transition-colors duration-200 group-hover:duration-0" />
+            {/* Hover paints at once; only the way out eases. */}
+            <span className="bg-foreground/25 group-hover:bg-foreground/60 block size-1 rounded-full transition-colors duration-150 group-hover:transition-none" />
           </TooltipTrigger>
           <RevisionTip revision={revision} clear={DOT_CLEAR} />
         </Tooltip>

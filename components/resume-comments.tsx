@@ -186,8 +186,8 @@ function PinShape({
       {...rest}
       className={cn(
         "pointer-events-auto absolute grid place-items-center rounded-full rounded-bl-none font-sans text-xs font-medium tabular-nums",
-        "shadow-composer-focus ring-2 ring-white transition-[scale,background-color] duration-200 hover:scale-110",
-        "animate-in fade-in zoom-in-50 ease-smooth-out origin-bottom-left",
+        "shadow-composer-focus ring-2 ring-white transition-[scale,background-color] duration-150 ease-aui hover:scale-110",
+        "animate-in fade-in zoom-in-50 origin-bottom-left duration-200 ease-aui motion-reduce:animate-none",
         className,
       )}
       style={{ left: spot.x, top: spot.y - PIN_PX, width: PIN_PX, height: PIN_PX }}
@@ -241,7 +241,7 @@ function Card({ spot, width, children }: { spot: Spot; width: number; children: 
     <div
       ref={ref}
       data-comment
-      className="shadow-composer-focus animate-in fade-in slide-in-from-left-1 pointer-events-auto absolute scroll-my-20 overflow-hidden rounded-2xl bg-(--composer-bg) duration-200"
+      className="shadow-composer-focus animate-in fade-in slide-in-from-left-1 pointer-events-auto absolute scroll-my-20 overflow-hidden rounded-2xl bg-(--composer-bg) duration-200 motion-reduce:animate-none"
       style={{ left, top: spot.y - PIN_PX - 4, width: CARD_PX }}
     >
       {children}

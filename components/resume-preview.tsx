@@ -106,7 +106,7 @@ function Notice({ children }: { children: React.ReactNode }) {
       {/* A flex row, not a line of text: inline, it sat on the page's 24px
           line and the spinner rode low. The braille glyph carries its own
           left bearing, so the left side takes less. */}
-      <div className="shadow-composer-focus animate-in fade-in slide-in-from-top-2 flex h-8 items-center rounded-full bg-(--composer-bg)/85 pr-3 pl-2.5 backdrop-blur-md duration-300">
+      <div className="shadow-composer-focus animate-in fade-in slide-in-from-top-1 flex h-8 items-center rounded-full bg-(--composer-bg)/85 pr-3 pl-2.5 backdrop-blur-md duration-200 motion-reduce:animate-none">
         {children}
       </div>
     </div>

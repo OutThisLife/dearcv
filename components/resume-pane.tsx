@@ -15,11 +15,11 @@ const SAVED_MS = 1800;
 /**
  * Both labels share one grid cell, so the button is as wide as the longer
  * one from the start and swapping never nudges its neighbour. The one not
- * showing blurs and shrinks out (transitions.dev's icon swap).
+ * showing shrinks and fades out, as assistant-ui's copy icon turns into a tick.
  */
 const SWAP =
-  "col-start-1 row-start-1 transition-[opacity,scale,filter] duration-250 ease-in-out motion-reduce:transition-none";
-const SWAP_OUT = "scale-25 opacity-0 blur-xs";
+  "col-start-1 row-start-1 transition-[opacity,scale] duration-150 ease-aui motion-reduce:transition-none";
+const SWAP_OUT = "scale-75 opacity-0";
 
 export function ResumePane() {
   const touched = useResumeStore((s) => s.touched);
@@ -95,13 +95,13 @@ function ResetButton() {
         // A fresh start has nothing behind it to step back to.
         useHistoryStore.setState({ revisions: [], at: 0 });
       }}
-      className="starting:opacity-0 starting:blur-xs"
+      className="animate-in fade-in duration-200 motion-reduce:animate-none"
     >
       {/* Winds back half a turn as it arms: the icon already says what's about to happen. */}
       <RotateCcwIcon
         data-icon="inline-start"
         className={cn(
-          "ease-smooth-out transition-transform duration-350 motion-reduce:transition-none",
+          "ease-aui transition-transform duration-200 motion-reduce:transition-none",
           armed && "-rotate-180",
         )}
       />

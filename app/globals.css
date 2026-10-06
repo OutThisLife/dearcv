@@ -93,8 +93,13 @@
   --shadow-composer: var(--composer-shadow);
   --shadow-composer-hover: var(--composer-shadow-hover);
   --shadow-composer-focus: var(--composer-shadow-focus);
-  /* transitions.dev's settle curve: quick off the mark, long soft landing. */
+  /* transitions.dev's settle curve: quick off the mark, long soft landing.
+     Kept for the page's agent effects, which follow pen.dev's timings. */
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* The curve assistant-ui's own collapsibles and chevrons move on. Chrome
+     around the chat moves on it too, at its 150/200ms, so nothing we added
+     reads as from a different kit. */
+  --ease-aui: cubic-bezier(0.32, 0.72, 0, 1);
   --animate-shimmer: shimmer-sweep var(--shimmer-duration, 1000ms) linear infinite both;
   @keyframes shimmer-sweep {
     from {
