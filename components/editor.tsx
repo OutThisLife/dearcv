@@ -11,6 +11,8 @@ import { seedResume, type SeededResume } from "@/lib/store/resume";
 import { DEMO_MESSAGES } from "@/lib/dev/demo-thread";
 import type { StoredHistory } from "@/lib/resume/history";
 import { seedHistory } from "@/lib/store/history";
+import { replaySpeed } from "@/lib/store/replay";
+import { seedReplay } from "@/components/session-replay";
 import { seedThread, useThreadStore } from "@/lib/store/thread";
 
 export type ThreadSeed = SeededResume & {
@@ -39,14 +41,21 @@ export function Editor({ seed }: { seed: ThreadSeed }) {
     if (typeof window === "undefined") return;
     if (useThreadStore.getState().id === id) return;
 
+    // Only a stored thread with something said in it has anything to replay.
+    const speed = replaySpeed();
+    const replay = speed && seed.id && seed.messages?.length ? speed : null;
+
     seedThread({
       id,
-      messages: demo() ? DEMO_MESSAGES : seed.messages,
+      // A replay starts the conversation empty and says it again from the top.
+      messages: demo() ? DEMO_MESSAGES : replay ? [] : seed.messages,
       addressed: Boolean(seed.id),
     });
     seedResume({ ...seed, id });
     // After the resume, since it is filed under the resume it belongs to.
     seedHistory(seed.history);
+    if (replay)
+      seedReplay({ messages: seed.messages ?? [], at: seed.history?.at ?? 0, speed: replay });
   });
 
   return (

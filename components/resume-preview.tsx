@@ -12,6 +12,7 @@ import { Thinking } from "@/components/ui/thinking";
 import { pickPdf, useReading } from "@/lib/resume/ingest";
 import { isEmptyResume } from "@/lib/resume/schema";
 import { useRevisions } from "@/lib/store/history";
+import { useReplayStore } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function ResumePreview() {
   const previewUrl = useResumeStore((s) => s.previewUrl);
   const ingesting = useResumeStore((s) => s.ingesting);
   const reading = useReading();
+  const replay = useReplayStore((s) => s.active);
 
   const { boxes, drawnAt, failed } = usePdfRender(doc);
 
@@ -87,7 +89,13 @@ export function ResumePreview() {
           </div>
         )}
       </div>
-      {reading && renderUrl ? (
+      {replay ? (
+        <Notice>
+          <span className="text-muted-foreground font-sans text-xs">
+            Replaying the session · Esc to skip
+          </span>
+        </Notice>
+      ) : reading && renderUrl ? (
         // The page itself shows the reading — the line it has reached — so
         // this only has to say what that is, out of the way at the top.
         <Notice>

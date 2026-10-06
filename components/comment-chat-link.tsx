@@ -3,6 +3,7 @@
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { useEffect } from "react";
 import { linkChat, mirrorChat } from "@/lib/comments";
+import { takeOver } from "@/lib/store/replay";
 
 /**
  * Lets comments reach the chat, and keeps their threads in step with it. A
@@ -22,6 +23,8 @@ export function CommentChatLink() {
     linkChat({
       busy: () => aui.thread().getState().isRunning,
       send: async (commentId, text) => {
+        // Said into the session as it was left, not into a replay of it.
+        takeOver();
         const thread = aui.thread();
         // A reply to its own comment mid-answer steers it, as the chat does.
         if (thread.getState().isRunning) {

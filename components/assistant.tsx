@@ -23,6 +23,8 @@ import { authHeaders, useAuthStore, useIsAuthed } from "@/lib/store/auth";
 import { chatCommentWhere, commentsBrief } from "@/lib/comments";
 import { CommentChatLink } from "@/components/comment-chat-link";
 import { historyBrief } from "@/lib/store/history";
+import { replaying } from "@/lib/store/replay";
+import { SessionReplay } from "@/components/session-replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -58,6 +60,7 @@ export function Assistant() {
     // hanging — so reopening one would fire a turn nobody asked for, before
     // the key has even been read back out of storage.
     sendAutomaticallyWhen: ({ messages }) =>
+      !replaying() &&
       messages.length > thread.initialMessages.length &&
       lastAssistantMessageIsCompleteWithToolCalls({ messages }),
     transport: new AssistantChatTransport({
@@ -91,6 +94,7 @@ export function Assistant() {
       <CommentChatLink />
       <AddressThread />
       <ComposerDraft />
+      <SessionReplay />
       <AuthDialog />
       <div className="flex h-full min-h-0 flex-col">
         <ChatHeader />

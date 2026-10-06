@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { storedHistory, useHistoryStore } from "@/lib/store/history";
+import { replaying, useReplayStore } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -86,6 +87,9 @@ export function ThreadSync() {
 
     let timer = 0;
     const save = () => {
+      // A replay walks the page through its past; writing that down would
+      // leave the thread on whichever step it happened to be showing.
+      if (replaying()) return;
       const { doc, sourceText, sourceName, pdfPath } = useResumeStore.getState();
       const body = JSON.stringify({
         doc,
@@ -113,13 +117,16 @@ export function ThreadSync() {
     save();
 
     // Stepping back is a change worth keeping too: a reload lands on the step
-    // they were looking at, with the ones after it still there to redo.
+    // they were looking at, with the ones after it still there to redo. A
+    // replay ending writes nothing new, but is the moment saving resumes.
     const unsubscribe = useResumeStore.subscribe(schedule);
     const unsubscribeHistory = useHistoryStore.subscribe(schedule);
+    const unsubscribeReplay = useReplayStore.subscribe(schedule);
     return () => {
       window.clearTimeout(timer);
       unsubscribe();
       unsubscribeHistory();
+      unsubscribeReplay();
     };
   }, [addressed, id]);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { isAuthed, useAuthStore, useIsAuthed } from "@/lib/store/auth";
+import { takeOver } from "@/lib/store/replay";
 
 import {
   ComposerAddAttachment,
@@ -154,6 +155,8 @@ export const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
     <ComposerPrimitive.Root
       className="aui-composer-root relative flex w-full flex-col"
       onSubmitCapture={(event) => {
+        // Sending during a replay continues the session as it was left.
+        takeOver();
         const trimmed = text.trim();
         if (trimmed !== text) setText(trimmed);
         if (!trimmed && !hasAttachments) event.preventDefault();
@@ -290,6 +293,8 @@ export const EditComposer: FC = () => {
       className="flex flex-col px-2 [contain-intrinsic-size:auto_12.5rem] [content-visibility:auto]"
     >
       <ComposerPrimitive.Root
+        // Editing a message during a replay continues the session as it was left.
+        onSubmitCapture={takeOver}
         className={cn(
           "aui-edit-composer-root",
           composerSurfaceClass,

@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { usePresence } from "@/hooks/use-presence";
 import { useSwap } from "@/hooks/use-swap";
 import { type Revision, useHistoryStore, useRevisions } from "@/lib/store/history";
+import { takeOver } from "@/lib/store/replay";
 import { cn } from "@/lib/utils";
 
 /** Past this many, dots stop being countable at a glance and a number reads better. */
@@ -102,13 +103,18 @@ export function ResumeHistory() {
   const last = useRef(live);
   if (live.revisions.length > 1) last.current = live;
   const { revisions, at } = last.current;
-  const { go } = useHistoryStore.getState();
+  // Stepping during a replay takes over from it, from where the session was left.
+  const go = (to: number) => {
+    takeOver();
+    useHistoryStore.getState().go(to);
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       const step = stepOf(event);
       if (!step) return;
+      takeOver();
       // Read at the keypress: the listener outlives any one render.
       const { at: now, revisions: all, go: to } = useHistoryStore.getState();
       if (!all[now + step]) return;

@@ -4,6 +4,7 @@ import { changedBoxes } from "@/lib/resume/pdf-boxes";
 import type { ResumeDoc } from "@/lib/resume/schema";
 import { useActivityStore } from "@/lib/store/activity";
 import { useMarksStore } from "@/lib/store/marks";
+import { takeOver } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -83,6 +84,9 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
   at: 0,
   owner: "",
   begin: () => {
+    // An edit made while a replay plays takes over from it first, so it
+    // lands on the session as it was left rather than somewhere in its past.
+    takeOver();
     const owner = documentKey();
     if (get().owner === owner && get().revisions.length) return;
     set({ owner, revisions: [current()], at: 0 });

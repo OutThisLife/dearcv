@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ResumePreview } from "@/components/resume-preview";
 import { Button } from "@/components/ui/button";
 import { useHistoryStore } from "@/lib/store/history";
+import { takeOver } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +92,7 @@ function ResetButton() {
       onClick={() => {
         if (!armed) return setArmed(true);
         setArmed(false);
+        takeOver();
         useResumeStore.getState().resetBlank();
         // A fresh start has nothing behind it to step back to.
         useHistoryStore.setState({ revisions: [], at: 0 });
