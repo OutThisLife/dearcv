@@ -1,11 +1,11 @@
 "use client";
 
-import { Redo2Icon, Undo2Icon } from "lucide-react";
-import { type CSSProperties, useEffect, useRef } from "react";
+import { MessageCirclePlusIcon, Redo2Icon, Undo2Icon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { BrushTools } from "@/components/resume-brush";
 import { usePresence } from "@/hooks/use-presence";
-import { useSwap } from "@/hooks/use-swap";
+import { useCommentsStore } from "@/lib/comments";
 import { type Revision, useHistoryStore, useRevisions } from "@/lib/store/history";
 import { takeOver } from "@/lib/store/replay";
 import { cn } from "@/lib/utils";
@@ -14,18 +14,13 @@ import { cn } from "@/lib/utils";
 const MAX_DOTS = 14;
 /** assistant-ui's exit beat: the quicker of its two. */
 const EXIT_MS = 150;
-/** The label's swap out, on the same beat, so a held key never outruns it. */
-const SWAP_MS = 150;
+/** How long a step's name stays up after a step taken without pointing at the bar. */
+const FLASH_MS = 1200;
 /** Each dot's slot, and the width of the bar that marks the current one. */
 const SLOT = 10;
 const BAR = 12;
-/**
- * How far a tip stands off its trigger to clear the top of the bar rather
- * than sit over it: from the label's top and the dots' top to the bar's edge,
- * plus the usual gap.
- */
-const LABEL_CLEAR = 12;
-const DOT_CLEAR = 24;
+/** The dots' inset in their slot (px-2), for floating the name over one. */
+const INSET = 8;
 
 /** Whether focus is in something that takes typing. */
 const editable = (target: EventTarget | null): target is HTMLElement =>
@@ -70,44 +65,63 @@ function stepOf(event: KeyboardEvent) {
 }
 
 /**
- * The frosted surface the bar and its buttons share, so they read as one
- * piece. Frosted rather than solid: they float over the page, and the text
- * they cover should read as underneath, not cut in half.
+ * The bar's surface: the composer's own, solid. Frosted, the page's text
+ * showed through it and it read as a sticker on the paper rather than the
+ * app's chrome.
  */
-const SURFACE = "shadow-composer-focus bg-(--composer-bg)/85 backdrop-blur-md";
+const SURFACE =
+  "bg-(--composer-bg) shadow-[var(--composer-shadow-focus),0_8px_24px_-12px_rgb(0_0_0/0.18)]";
 
 /**
- * As tall as the bar, so they cap it rather than orbit it, and as tall as the
- * header's buttons, so it reads as the same chrome. A step that isn't there
- * dims only its arrow: fading the whole button would let the page show
- * through the one disc that stays.
+ * As tall as the header's buttons, so it reads as the same chrome. A step
+ * that isn't there dims only its arrow.
  */
 const CIRCLE =
-  "size-7 rounded-full disabled:opacity-100 disabled:[&_svg]:opacity-30 [&_svg]:transition-opacity [&_svg]:duration-200";
+  "size-7 rounded-full disabled:opacity-100 disabled:[&_svg]:opacity-40 [&_svg]:transition-opacity [&_svg]:duration-200";
 
 /**
- * Steps through every version of the resume this session, like flicking
- * through looks in a character creator: undo and redo either side, the
- * version's name between them, a dot for each to jump straight to. It floats
- * over the paper rather than living in the header because it is about the
- * page underneath, and only rises in once there is a step to take back.
+ * The page's toolbar, floated at the bottom of the pane the way Figma's
+ * sits under the canvas: the tools that work on the page — comment, pen,
+ * highlighter — then, once there is a step to take back, the history, all in
+ * one solid bar in the composer's chrome so it reads as part of the app
+ * rather than something left on the paper.
+ *
+ * History steps through every version of the resume this session, like
+ * flicking through looks in a character creator: undo and redo either side,
+ * a dot for each to jump straight to, its name floated above on hover.
  *
  * Moves the way the chat beside it does: in as one piece on assistant-ui's
  * message entrance, out on its quicker beat, everything inside on its curve.
  */
-export function ResumeHistory() {
+export function ResumeHistory({ tools }: { tools: boolean }) {
   const live = useRevisions();
-  const { mounted, closing } = usePresence(live.revisions.length > 1, EXIT_MS);
+  const stepping = live.revisions.length > 1;
+  const { mounted, closing } = usePresence(stepping, EXIT_MS);
   // While it sinks away the history may already be gone; keep showing the
   // last of it rather than an empty bar.
   const last = useRef(live);
-  if (live.revisions.length > 1) last.current = live;
+  if (stepping) last.current = live;
   const { revisions, at } = last.current;
   // Stepping during a replay takes over from it, from where the session was left.
   const go = (to: number) => {
     takeOver();
     useHistoryStore.getState().go(to);
   };
+
+  // The name has no place of its own in the bar any more: it floats over a
+  // dot while that dot is pointed at, and for a moment after any step taken
+  // from elsewhere (a key, the buttons), so a step always says where it went.
+  const [pointed, setPointed] = useState<number | null>(null);
+  const [inside, setInside] = useState(false);
+  const [flashing, setFlashing] = useState(false);
+  const seen = useRef(at);
+  useEffect(() => {
+    if (seen.current === at) return;
+    seen.current = at;
+    setFlashing(true);
+    const timer = window.setTimeout(() => setFlashing(false), FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [at]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -125,158 +139,204 @@ export function ResumeHistory() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!mounted) return null;
+  if (!tools && !mounted) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
       <div
         role="group"
-        aria-label="Resume history"
+        aria-label="Page tools"
         className={cn(
-          "pointer-events-auto flex items-center gap-1.5 font-sans",
+          SURFACE,
+          "pointer-events-auto flex h-9 items-center gap-0.5 rounded-full p-1 font-sans",
           "animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
-          closing &&
-            "animate-out fade-out slide-out-to-bottom-1 fill-mode-forwards duration-150 motion-reduce:animate-none",
         )}
       >
-        <TooltipIconButton
-          tooltip="Undo · ← or ⌘Z"
-          side="top"
-          className={cn(SURFACE, CIRCLE)}
-          disabled={at === 0}
-          onClick={() => go(at - 1)}
-        >
-          <Undo2Icon className="size-3.5" />
-        </TooltipIconButton>
+        {tools ? (
+          <>
+            <CommentTool />
+            <BrushTools />
+          </>
+        ) : null}
 
-        <div
-          className={cn(
-            SURFACE,
-            "flex h-7 w-40 flex-col items-center justify-center gap-px rounded-full px-3.5",
-          )}
-        >
-          <Label revisions={revisions} at={at} />
-          {revisions.length > MAX_DOTS ? (
-            <span className="text-muted-foreground text-[0.625rem] leading-2.5 tabular-nums">
-              {at + 1} / {revisions.length}
-            </span>
-          ) : (
-            <Dots revisions={revisions} at={at} go={go} />
-          )}
-        </div>
+        {mounted ? (
+          <div
+            role="group"
+            aria-label="Resume history"
+            className={cn(
+              "flex items-center gap-0.5",
+              "animate-in fade-in slide-in-from-left-1 duration-200 motion-reduce:animate-none",
+              closing &&
+                "animate-out fade-out slide-out-to-left-1 fill-mode-forwards duration-150 motion-reduce:animate-none",
+            )}
+          >
+            {tools ? <span aria-hidden className="bg-border mx-1 h-4 w-px" /> : null}
+            <TooltipIconButton
+              tooltip="Undo · ← or ⌘Z"
+              side="top"
+              className={CIRCLE}
+              disabled={at === 0}
+              onClick={() => go(at - 1)}
+            >
+              <Undo2Icon className="size-3.5" />
+            </TooltipIconButton>
 
-        <TooltipIconButton
-          tooltip="Redo · → or ⇧⌘Z"
-          side="top"
-          className={cn(SURFACE, CIRCLE)}
-          disabled={at === revisions.length - 1}
-          onClick={() => go(at + 1)}
-        >
-          <Redo2Icon className="size-3.5" />
-        </TooltipIconButton>
+            <div
+              className="relative flex h-7 items-center justify-center px-2"
+              onPointerEnter={() => setInside(true)}
+              onPointerLeave={() => {
+                setInside(false);
+                setPointed(null);
+              }}
+            >
+              {revisions.length > MAX_DOTS ? (
+                <span
+                  onPointerEnter={() => setPointed(at)}
+                  className="text-muted-foreground px-1 text-[0.6875rem] tabular-nums"
+                >
+                  {at + 1} / {revisions.length}
+                </span>
+              ) : (
+                <Dots revisions={revisions} at={at} go={go} point={setPointed} />
+              )}
+              <StepLabel
+                revisions={revisions}
+                index={pointed ?? (flashing && !inside ? at : null)}
+                x={(i) => (revisions.length > MAX_DOTS ? undefined : INSET + i * SLOT + SLOT / 2)}
+              />
+              {/* What the label says, for anyone not looking at it. */}
+              <span aria-live="polite" className="sr-only">
+                {revisions[at]?.label}
+              </span>
+            </div>
+
+            <TooltipIconButton
+              tooltip="Redo · → or ⇧⌘Z"
+              side="top"
+              className={CIRCLE}
+              disabled={at === revisions.length - 1}
+              onClick={() => go(at + 1)}
+            >
+              <Redo2Icon className="size-3.5" />
+            </TooltipIconButton>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** C, as a button: arms the next click on the page to drop a pin. */
+function CommentTool() {
+  const placing = useCommentsStore((s) => s.placing);
+  return (
+    <TooltipIconButton
+      tooltip="Comment · C"
+      side="top"
+      aria-pressed={placing}
+      onClick={() => useCommentsStore.getState().setPlacing(!placing)}
+      className={cn(
+        "size-7 rounded-full",
+        placing && "bg-brand-leaf hover:bg-brand-leaf/90 text-white hover:text-white",
+      )}
+    >
+      <MessageCirclePlusIcon className="size-3.5" />
+    </TooltipIconButton>
+  );
+}
+
+/**
+ * The step's name, floated over the bar rather than written in it: one label
+ * that glides to whichever dot is pointed at — the way Linear's and Vercel's
+ * toolbars move a single tooltip between items instead of popping one per
+ * item — and shows itself for a moment after a step taken from the keyboard,
+ * so ← → still say where they landed. In the tooltip's own ink and type, so
+ * it reads as the app's tooltip, only smoother.
+ */
+function StepLabel({
+  revisions,
+  index,
+  x,
+}: {
+  revisions: Revision[];
+  index: number | null;
+  x: (i: number) => number | undefined;
+}) {
+  const { mounted, closing } = usePresence(index !== null, EXIT_MS);
+  // Leaving, it keeps what it said rather than going blank as it fades.
+  const last = useRef(index ?? 0);
+  if (index !== null) last.current = index;
+  const revision = revisions[last.current];
+  if (!mounted || !revision) return null;
+
+  const left = x(last.current);
+  const asked = revision.request && revision.label !== revision.changes[0];
+  const changes =
+    revision.changes.length > 1 || (revision.request && revision.changes.length)
+      ? revision.changes.join(" · ")
+      : "";
+
+  return (
+    <div
+      aria-hidden
+      className="ease-aui pointer-events-none absolute bottom-full mb-3 transition-[left] duration-150 motion-reduce:transition-none"
+      style={{ left: left ?? "50%" }}
+    >
+      <div
+        className={cn(
+          "bg-foreground text-background relative flex w-max max-w-72 -translate-x-1/2 flex-col gap-0.5 rounded-md px-3 py-1.5 text-xs text-balance",
+          "animate-in fade-in zoom-in-95 slide-in-from-bottom-1 origin-bottom duration-150 motion-reduce:animate-none",
+          closing &&
+            "animate-out fade-out zoom-out-95 fill-mode-forwards duration-150 motion-reduce:animate-none",
+        )}
+      >
+        <span className="line-clamp-2">{asked ? `“${revision.label}”` : revision.label}</span>
+        {changes ? <span className="text-background/60">{changes}</span> : null}
+        <span className="bg-foreground absolute top-full left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[0.125rem]" />
       </div>
     </div>
   );
 }
 
 /**
- * The version's name, swapped the way it was stepped: forward nudges left,
- * back nudges right — two pixels and a fade, like a reasoning block opening,
- * not a slide.
- */
-function Label({ revisions, at }: { revisions: Revision[]; at: number }) {
-  const { shown, phase } = useSwap(at, SWAP_MS);
-  const from = useRef(at);
-  const direction = useRef(1);
-  if (from.current !== at) {
-    direction.current = at > from.current ? 1 : -1;
-    from.current = at;
-  }
-
-  const revision = revisions[shown] ?? revisions[at];
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            aria-live="polite"
-            data-phase={phase}
-            style={{ "--dir": direction.current } as CSSProperties}
-            className={cn(
-              "text-foreground block max-w-full truncate text-[0.6875rem] leading-3 font-medium",
-              "ease-aui transition-[opacity,translate] duration-150 motion-reduce:transition-none",
-              "data-[phase=exit]:translate-x-[calc(var(--dir)*-0.125rem)] data-[phase=exit]:opacity-0",
-              "data-[phase=enter]:translate-x-[calc(var(--dir)*0.125rem)] data-[phase=enter]:opacity-0 data-[phase=enter]:transition-none",
-            )}
-          />
-        }
-      >
-        {revision?.label}
-      </TooltipTrigger>
-      {revision ? <RevisionTip revision={revision} clear={LABEL_CLEAR} /> : null}
-    </Tooltip>
-  );
-}
-
-/**
- * The whole of a step, for when its name is cut short or it is only a dot:
- * what was asked, in their words, and what it changed.
- */
-function RevisionTip({ revision, clear }: { revision: Revision; clear: number }) {
-  return (
-    <TooltipContent side="top" sideOffset={clear} className="max-w-64 flex-col items-start gap-0.5">
-      <span className="line-clamp-3">
-        {revision.request && revision.label !== revision.changes[0]
-          ? `“${revision.label}”`
-          : revision.label}
-      </span>
-      {revision.changes.length > 1 || (revision.request && revision.changes.length) ? (
-        <span className="text-background/60">{revision.changes.join(" · ")}</span>
-      ) : null}
-    </TooltipContent>
-  );
-}
-
-/**
  * A dot per version and one bar that slides between them, so the eye follows
- * the step instead of hunting for which dot lit up.
+ * the step instead of hunting for which dot lit up. Pointing at one names it
+ * in the label above.
  */
 function Dots({
   revisions,
   at,
   go,
+  point,
 }: {
   revisions: Revision[];
   at: number;
   go: (to: number) => void;
+  point: (i: number | null) => void;
 }) {
   return (
     <div className="relative flex items-center">
       <span
         aria-hidden
-        className="bg-foreground ease-aui pointer-events-none absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full transition-transform duration-200 motion-reduce:transition-none"
+        className="bg-foreground/80 ease-aui pointer-events-none absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full transition-transform duration-200 motion-reduce:transition-none"
         style={{ width: BAR, transform: `translateX(${at * SLOT + (SLOT - BAR) / 2}px)` }}
       />
       {revisions.map((revision, i) => (
-        <Tooltip key={i}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`Go to ${revision.label}`}
-                aria-current={i === at ? "step" : undefined}
-                onClick={() => go(i)}
-                style={{ width: SLOT }}
-                className="group grid h-2 cursor-pointer place-items-center"
-              />
-            }
-          >
-            {/* Hover paints at once; only the way out eases. */}
-            <span className="bg-foreground/25 group-hover:bg-foreground/60 block size-1 rounded-full transition-colors duration-150 group-hover:transition-none" />
-          </TooltipTrigger>
-          <RevisionTip revision={revision} clear={DOT_CLEAR} />
-        </Tooltip>
+        <button
+          key={i}
+          type="button"
+          aria-label={`Go to ${revision.label}`}
+          aria-current={i === at ? "step" : undefined}
+          onClick={() => go(i)}
+          onPointerEnter={() => point(i)}
+          onFocus={() => point(i)}
+          onBlur={() => point(null)}
+          style={{ width: SLOT }}
+          className="group grid h-7 cursor-pointer place-items-center outline-none"
+        >
+          {/* Hover paints at once; only the way out eases. */}
+          <span className="bg-foreground/20 group-hover:bg-foreground/60 group-focus-visible:bg-foreground/60 block size-1 rounded-full transition-colors duration-150 group-hover:transition-none" />
+        </button>
       ))}
     </div>
   );

@@ -200,7 +200,7 @@ function CommentTag() {
       // was only as wide as a short comment, and wrapped off its pin.
       className="text-muted-foreground hover:text-foreground col-span-full flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 justify-self-end font-sans text-xs transition-colors"
     >
-      <span className="bg-foreground text-background grid size-4 shrink-0 place-items-center rounded-full rounded-bl-none text-[9px] font-medium tabular-nums">
+      <span className="bg-brand-leaf grid size-4 shrink-0 place-items-center rounded-full rounded-bl-none text-[9px] font-medium text-white tabular-nums">
         {comment.n}
       </span>
       <span className="truncate">{place ? `Comment on “${place}”` : "Comment on the page"}</span>

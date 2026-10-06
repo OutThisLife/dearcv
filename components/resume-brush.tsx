@@ -235,48 +235,35 @@ function useBrushKeys() {
   }, []);
 }
 
-/** The same frosted chrome the history bar floats in. */
-const SURFACE = "shadow-composer-focus bg-(--composer-bg)/85 backdrop-blur-md";
-
 /**
- * The two tools, floated at the pane's top-right corner and out of the
- * page's way, in the history bar's chrome.
+ * The two drawing tools, for the page's toolbar (components/resume-history.tsx):
+ * the held one inks in, as a tool in Figma's toolbar does.
  */
-export function BrushBar() {
+export function BrushTools() {
   const tool = useBrushStore((s) => s.tool);
   const setTool = useBrushStore((s) => s.setTool);
   const held = "bg-foreground text-background hover:bg-foreground/90 hover:text-background";
 
   return (
-    <div className="pointer-events-none absolute top-3 right-4 z-30">
-      <div
-        role="toolbar"
-        aria-label="Draw on the page"
-        className={cn(
-          SURFACE,
-          "pointer-events-auto flex flex-col gap-0.5 rounded-full p-0.5",
-          "animate-in fade-in duration-200 motion-reduce:animate-none",
-        )}
+    <div role="toolbar" aria-label="Draw on the page" className="flex items-center gap-0.5">
+      <TooltipIconButton
+        tooltip="Pen · P"
+        side="top"
+        aria-pressed={tool === "pen"}
+        onClick={() => setTool(tool === "pen" ? null : "pen")}
+        className={cn("size-7 rounded-full", tool === "pen" && held)}
       >
-        <TooltipIconButton
-          tooltip="Pen · P"
-          side="left"
-          aria-pressed={tool === "pen"}
-          onClick={() => setTool(tool === "pen" ? null : "pen")}
-          className={cn("size-7 rounded-full", tool === "pen" && held)}
-        >
-          <PenLineIcon className="size-3.5" />
-        </TooltipIconButton>
-        <TooltipIconButton
-          tooltip="Highlighter · H · ⇧ for straight"
-          side="left"
-          aria-pressed={tool === "marker"}
-          onClick={() => setTool(tool === "marker" ? null : "marker")}
-          className={cn("size-7 rounded-full", tool === "marker" && held)}
-        >
-          <HighlighterIcon className="size-3.5" />
-        </TooltipIconButton>
-      </div>
+        <PenLineIcon className="size-3.5" />
+      </TooltipIconButton>
+      <TooltipIconButton
+        tooltip="Highlighter · H · ⇧ for straight"
+        side="top"
+        aria-pressed={tool === "marker"}
+        onClick={() => setTool(tool === "marker" ? null : "marker")}
+        className={cn("size-7 rounded-full", tool === "marker" && held)}
+      >
+        <HighlighterIcon className="size-3.5" />
+      </TooltipIconButton>
     </div>
   );
 }

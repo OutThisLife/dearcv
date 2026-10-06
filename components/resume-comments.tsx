@@ -18,13 +18,15 @@ import {
   hasChanges,
   isAsking,
   isRunning,
+  placeOf,
   progressOf,
   reply,
   setUndone,
+  shortAgo,
   submitDraft,
   useCommentsStore,
-  workedFor,
 } from "@/lib/comments";
+import { WORDMARK_LEAF_PATH } from "@/lib/dearcv-artwork";
 import { useReading } from "@/lib/resume/ingest";
 import type { PdfBoxes } from "@/lib/resume/pdf-boxes";
 import { locatePin } from "@/lib/resume/pin-context";
@@ -33,10 +35,12 @@ import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
 
 /** The thread card's width, and the gap it keeps from its pin. */
-const CARD_PX = 288;
+const CARD_PX = 320;
 const CARD_GAP = 14;
 /** How big a pin is: it points from its bottom-left corner, like Figma's. */
 const PIN_PX = 28;
+/** A card's first row — the reply line of a new comment, a thread's header — centred on the pin. */
+const ROW_PX = 36;
 
 type Spot = { x: number; y: number };
 
@@ -113,7 +117,7 @@ export function ResumeComments({ boxes, pages }: { boxes: PdfBoxes; pages: PageB
             const spot = spotOf(draft);
             return spot ? (
               <>
-                <PinShape spot={spot} className="bg-neutral-950 text-white">
+                <PinShape spot={spot} className="bg-brand-leaf text-white">
                   <span className="size-1.5 rounded-full bg-white" />
                 </PinShape>
                 <Card spot={spot} width={width}>
@@ -186,7 +190,7 @@ function PinShape({
       {...rest}
       className={cn(
         "pointer-events-auto absolute grid place-items-center rounded-full rounded-bl-none font-sans text-xs font-medium tabular-nums",
-        "shadow-composer-focus ring-2 ring-white transition-[scale,background-color] duration-150 ease-aui hover:scale-110",
+        "shadow-[0_0_0_2px_white,0_2px_6px_rgb(0_0_0/0.25)] transition-[scale,background-color,box-shadow] duration-150 ease-aui hover:scale-110",
         "animate-in fade-in zoom-in-50 origin-bottom-left duration-200 ease-aui motion-reduce:animate-none",
         className,
       )}
@@ -199,8 +203,9 @@ function PinShape({
 
 /**
  * A pin says what its agent is doing without being opened: its number at
- * rest, a spinner while it works, and the brand's pink when it has asked
- * something and is waiting on an answer.
+ * rest, a spinner while it works, and a soft halo of its own pink when it
+ * has asked something and is waiting on an answer. Pink in either theme:
+ * the page stays paper at night.
  */
 function CommentPin({ comment, spot, open }: { comment: Comment; spot: Spot; open: boolean }) {
   const waiting = isAsking(comment);
@@ -213,11 +218,11 @@ function CommentPin({ comment, spot, open }: { comment: Comment; spot: Spot; ope
       aria-expanded={open}
       onClick={() => useCommentsStore.getState().setOpen(open ? null : comment.id)}
       className={cn(
-        // Ink on paper in either theme: the page stays paper at night, and a
-        // pin in the theme's foreground turned white on it.
-        waiting ? "bg-brand-leaf text-white" : "bg-neutral-950 text-white",
+        "bg-brand-leaf text-white",
         (open || pointedAt) && "scale-110",
-        pointedAt && "ring-brand-leaf",
+        // Waiting on them: a soft halo of its own pink around the white edge.
+        waiting &&
+          "shadow-[0_0_0_2px_white,0_0_0_6px_color-mix(in_oklab,var(--brand-leaf)_30%,transparent),0_2px_6px_rgb(0_0_0/0.25)]",
       )}
     >
       {isRunning(comment) ? <GlyphSpinner className="text-[11px]" /> : comment.n}
@@ -241,14 +246,22 @@ function Card({ spot, width, children }: { spot: Spot; width: number; children: 
     <div
       ref={ref}
       data-comment
-      className="shadow-composer-focus animate-in fade-in slide-in-from-left-1 pointer-events-auto absolute scroll-my-20 overflow-hidden rounded-2xl bg-(--composer-bg) duration-200 motion-reduce:animate-none"
-      style={{ left, top: spot.y - PIN_PX - 4, width: CARD_PX }}
+      // The chat's own surface, in the chat's beige, so a thread reads as a
+      // piece of the conversation set down on the page.
+      className="animate-in fade-in slide-in-from-left-1 bg-sidebar pointer-events-auto absolute shadow-[var(--composer-shadow-focus),0_12px_32px_-12px_rgb(0_0_0/0.22)] scroll-my-20 overflow-hidden rounded-xl font-sans duration-200 motion-reduce:animate-none"
+      style={{ left, top: spot.y - PIN_PX / 2 - ROW_PX / 2, width: CARD_PX }}
     >
       {children}
     </div>
   );
 }
 
+/**
+ * A thread the way Figma lays one out: what it is on and its actions along
+ * the top, then each message under a small face, a name and when — theirs
+ * and DearCV's alike, so it reads as a conversation rather than a log — and
+ * one slim line to reply in at the bottom.
+ */
 function Thread({ comment }: { comment: Comment }) {
   const scroller = useRef<HTMLDivElement>(null);
   const { resolve, remove } = useCommentsStore.getState();
@@ -260,18 +273,22 @@ function Thread({ comment }: { comment: Comment }) {
 
   const reading = useReading();
   const busy = isRunning(comment);
-  const took = workedFor(comment);
+  const place = placeOf(comment);
+  const changed = !busy && !comment.error && hasChanges(comment.id);
+  const lastReply = comment.messages.findLastIndex((message) => message.role === "assistant");
 
   return (
     <>
-      <div className="flex items-center justify-between py-1.5 pr-1.5 pl-3.5">
-        <span className="text-muted-foreground font-sans text-xs">Comment {comment.n}</span>
-        <div className="flex items-center">
+      <div className="flex h-9 items-center justify-between gap-2 pr-1 pl-3">
+        <span className="text-muted-foreground min-w-0 truncate text-xs">
+          {place ? `On “${place}”` : "On the page"}
+        </span>
+        <div className="flex shrink-0 items-center">
           <TooltipIconButton
             tooltip="Resolve"
             side="top"
             onClick={() => resolve(comment.id)}
-            className="size-7 p-1.5"
+            className="text-muted-foreground hover:text-foreground size-7 p-1.5"
           >
             <CheckIcon />
           </TooltipIconButton>
@@ -279,50 +296,64 @@ function Thread({ comment }: { comment: Comment }) {
             tooltip="Delete"
             side="top"
             onClick={() => remove(comment.id)}
-            className="size-7 p-1.5"
+            className="text-muted-foreground hover:text-foreground size-7 p-1.5"
           >
             <Trash2Icon />
           </TooltipIconButton>
         </div>
       </div>
-      <div ref={scroller} className="flex max-h-72 flex-col gap-3 overflow-y-auto px-3.5 pb-3">
+      <div
+        ref={scroller}
+        className="border-border/60 flex max-h-80 flex-col overflow-y-auto border-t py-1.5"
+      >
         {comment.messages.map((message, i) => (
           <Message
             key={message.id}
             message={message}
+            // A time only when it moves on from the one above, so a quick
+            // back-and-forth isn't a column of "now".
+            at={
+              shortAgo(comment.times?.[message.id]) ===
+              shortAgo(comment.times?.[comment.messages[i - 1]?.id ?? ""])
+                ? undefined
+                : comment.times?.[message.id]
+            }
             streaming={busy && i === comment.messages.length - 1}
+            // What it changed, and the way to take it back, sit with the reply
+            // that made the change rather than adrift at the bottom.
+            footer={
+              i === lastReply && changed ? (
+                <button
+                  type="button"
+                  onClick={() => setUndone(comment.id, !comment.undone)}
+                  className="text-muted-foreground hover:text-foreground -ms-1 inline-flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-xs transition-colors duration-150 hover:transition-none"
+                >
+                  {comment.undone ? (
+                    <Redo2Icon className="size-3" />
+                  ) : (
+                    <Undo2Icon className="size-3" />
+                  )}
+                  {comment.undone ? "Put it back" : "Undo this"}
+                </button>
+              ) : null
+            }
           />
         ))}
-        {/* The step it is on, live, the way Liveblocks' agents narrate a
-            placeholder reply — then how long it took, once it is done. */}
         {busy ? (
-          <Thinking label={progressOf(comment, reading)} className="font-sans text-xs" />
-        ) : took && !comment.error ? (
-          <div className="-my-1 flex items-center justify-between gap-2">
-            <span className="text-muted-foreground font-sans text-xs">
-              {comment.undone ? "Undone" : `Worked for ${took}`}
-            </span>
-            {/* Takes back this comment's change alone — not whatever else
-                has happened to the page since — and puts it back again. */}
-            {hasChanges(comment.id) ? (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setUndone(comment.id, !comment.undone)}
-                className="text-muted-foreground hover:text-foreground -mr-2 font-sans"
-              >
-                {comment.undone ? (
-                  <Redo2Icon data-icon="inline-start" />
-                ) : (
-                  <Undo2Icon data-icon="inline-start" />
-                )}
-                {comment.undone ? "Redo" : "Undo"}
-              </Button>
-            ) : null}
-          </div>
+          // Its face, working: the step it is on, live, the way Liveblocks'
+          // agents narrate a placeholder reply.
+          !comment.messages.at(-1) || comment.messages.at(-1)?.role === "user" ? (
+            <Row who="assistant">
+              <Thinking label={progressOf(comment, reading)} className="text-xs" />
+            </Row>
+          ) : (
+            <div className="ps-10 pe-3 pb-1.5">
+              <Thinking label={progressOf(comment, reading)} className="text-xs" />
+            </div>
+          )
         ) : null}
         {comment.error && !busy ? (
-          <p className="text-destructive font-sans text-xs">
+          <p className="text-destructive pe-3 pb-1.5 ps-10 text-xs">
             {comment.error.message || "That didn't go through."}
           </p>
         ) : null}
@@ -334,15 +365,77 @@ function Thread({ comment }: { comment: Comment }) {
   );
 }
 
-function Message({ message, streaming }: { message: UIMessage; streaming?: boolean }) {
+/** A face for whoever said it: theirs in ink, DearCV's the logo's leaf on the pink of its pin. */
+function Face({ who }: { who: UIMessage["role"] }) {
+  if (who === "user") {
+    return (
+      <span
+        aria-hidden
+        className="bg-foreground text-background grid size-5 shrink-0 place-items-center rounded-full text-[0.5625rem] font-semibold"
+      >
+        Y
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className="bg-brand-leaf grid size-5 shrink-0 place-items-center rounded-full"
+    >
+      <svg viewBox="128 562 140 145" className="size-3 fill-white">
+        <path d={WORDMARK_LEAF_PATH} />
+      </svg>
+    </span>
+  );
+}
+
+/** One message's frame: face, name and time on one line, the words under the name. */
+function Row({
+  who,
+  at,
+  children,
+}: {
+  who: UIMessage["role"];
+  at?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-2 px-3 py-1.5">
+      <Face who={who} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex h-5 items-center gap-1.5 text-xs">
+          <span className="text-foreground font-medium">{who === "user" ? "You" : "DearCV"}</span>
+          {at ? <span className="text-muted-foreground">{shortAgo(at)}</span> : null}
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One message: their words, or DearCV's with what it did noted above them
+ * in the chat's own small type. The words are the chat's serif and markdown,
+ * so a reply reads the same here as on the left.
+ */
+function Message({
+  message,
+  at,
+  streaming,
+  footer,
+}: {
+  message: UIMessage;
+  at?: number;
+  streaming?: boolean;
+  footer?: React.ReactNode;
+}) {
   const parts = message.parts.flatMap((part, i) => {
     if (part.type === "text" && part.text.trim()) {
-      // The chat's own markdown, so a reply reads the same here as on the left.
       return [
         // The chat's spacing is for a column of prose; a card wants it closer.
         <div
           key={i}
-          className="text-sm leading-relaxed [&_.aui-md-ol]:my-1.5 [&_.aui-md-p]:my-1.5 [&_.aui-md-ul]:my-1.5 [&_.aui-md-ul]:ms-4"
+          className="font-serif text-[0.8125rem] leading-[1.45] [&_.aui-md-ol]:my-1 [&_.aui-md-p]:my-1 [&_.aui-md-ul]:my-1 [&_.aui-md-ul]:ms-4"
         >
           <TextMessagePartProvider text={part.text.trim()} isRunning={streaming}>
             <MarkdownText />
@@ -359,12 +452,10 @@ function Message({ message, streaming }: { message: UIMessage; streaming?: boole
   if (!parts.length) return null;
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-foreground font-sans text-xs font-medium">
-        {message.role === "user" ? "You" : "DearCV"}
-      </span>
+    <Row who={message.role} at={at}>
       {parts}
-    </div>
+      {footer ? <div className="pt-0.5">{footer}</div> : null}
+    </Row>
   );
 }
 
@@ -400,7 +491,7 @@ function Reply({
   };
 
   return (
-    <div className="flex items-end gap-1.5 py-1.5 pr-1.5 pl-3.5">
+    <div className="flex items-end gap-2 py-1.5 pr-2.5 pl-3">
       <textarea
         autoFocus={autoFocus}
         rows={1}
@@ -408,16 +499,17 @@ function Reply({
         placeholder={placeholder}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={onKeyDown}
-        className="caret-primary placeholder:text-muted-foreground/60 field-sizing-content max-h-32 min-h-7 flex-1 resize-none bg-transparent py-1 font-sans text-sm leading-5 outline-none"
+        className="caret-primary placeholder:text-muted-foreground/70 field-sizing-content max-h-32 min-h-6 flex-1 resize-none bg-transparent py-0.5 text-sm leading-5 outline-none"
       />
+      {/* Quiet until there is something to send, like Figma's. */}
       <Button
         size="icon"
         aria-label="Send"
         disabled={!text.trim()}
         onClick={send}
-        className="size-7 shrink-0 rounded-full"
+        className="size-6 shrink-0 rounded-full disabled:opacity-25"
       >
-        <ArrowUpIcon className="size-4" />
+        <ArrowUpIcon className="size-3.5" />
       </Button>
     </div>
   );

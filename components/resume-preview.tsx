@@ -5,14 +5,13 @@ import { usePdfRender } from "@/hooks/use-pdf-render";
 import { PdfFileIcon } from "@/components/pdf-file-icon";
 import { ResumeHistory } from "@/components/resume-history";
 import { ResumeActivity } from "@/components/resume-activity";
-import { BrushBar, ResumeBrush } from "@/components/resume-brush";
+import { ResumeBrush } from "@/components/resume-brush";
 import { ResumeComments } from "@/components/resume-comments";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Thinking } from "@/components/ui/thinking";
 import { pickPdf, useReading } from "@/lib/resume/ingest";
 import { isEmptyResume } from "@/lib/resume/schema";
-import { useRevisions } from "@/lib/store/history";
 import { useReplayStore } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { cn } from "@/lib/utils";
@@ -34,7 +33,6 @@ export function ResumePreview() {
   const renderUrl = originalUrl && !touched ? originalUrl : previewUrl;
 
   const { hostRef, pages } = usePdfPages(renderUrl);
-  const stepping = useRevisions().revisions.length > 1;
 
   // Nothing to show and nothing coming. Reading this off renderUrl alone put
   // the whole drop zone back on screen while the first edit was still being
@@ -65,9 +63,9 @@ export function ResumePreview() {
             />
           </button>
         ) : renderUrl ? (
-          // Room under the last page for the history bar to float in, so it
+          // Room under the last page for the toolbar to float in, so it
           // never has to sit over the end of the resume.
-          <div className={cn("relative min-h-full w-full", stepping && "pb-20")}>
+          <div className="relative min-h-full w-full pb-20">
             {/* The PDF is genuinely white paper, so knock it back at night the
                 way an e-reader does rather than firing a white slab at you.
                 The agent's marks sit outside the filter so they stay their own colour. */}
@@ -104,8 +102,7 @@ export function ResumePreview() {
           <Thinking label="Reading your resume" />
         </Notice>
       ) : null}
-      {renderUrl && !empty && !replay ? <BrushBar /> : null}
-      <ResumeHistory />
+      <ResumeHistory tools={Boolean(renderUrl) && !empty && !replay} />
     </div>
   );
 }

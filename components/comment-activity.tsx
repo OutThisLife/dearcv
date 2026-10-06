@@ -9,7 +9,6 @@ import {
   isRunning,
   progressOf,
   useCommentsStore,
-  workedFor,
 } from "@/lib/comments";
 import { useReading } from "@/lib/resume/ingest";
 import { useDocumentKey } from "@/lib/store/history";
@@ -49,7 +48,6 @@ export function CommentActivity() {
 function Line({ comment, reading, open }: { comment: Comment; reading: boolean; open: boolean }) {
   const busy = isRunning(comment);
   const waiting = isAsking(comment);
-  const took = workedFor(comment);
 
   return (
     <button
@@ -71,8 +69,8 @@ function Line({ comment, reading, open }: { comment: Comment; reading: boolean; 
       {/* The pin it stands for, in miniature. */}
       <span
         className={cn(
-          "grid size-5 shrink-0 place-items-center rounded-full rounded-bl-none text-[10px] font-medium tabular-nums",
-          waiting ? "bg-brand-leaf text-white" : "bg-foreground text-background",
+          "bg-brand-leaf grid size-5 shrink-0 place-items-center rounded-full rounded-bl-none text-[10px] font-medium text-white tabular-nums",
+          waiting && "ring-brand-leaf/30 ring-2",
         )}
       >
         {busy ? <GlyphSpinner className="text-[9px]" /> : comment.n}
@@ -86,7 +84,6 @@ function Line({ comment, reading, open }: { comment: Comment; reading: boolean; 
         )}
       >
         {progressOf(comment, reading)}
-        {!busy && took && !comment.error ? ` · ${took}` : ""}
       </span>
     </button>
   );

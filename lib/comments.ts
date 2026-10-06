@@ -71,9 +71,8 @@ export type Comment = Draft & {
   status: ChatStatus;
   error?: Error;
   resolved: boolean;
-  /** When its agent last started on it, and finished — the thread says how long it worked. */
-  startedAt?: number;
-  finishedAt?: number;
+  /** When each message in its thread was first seen, by id, for the thread's timestamps. */
+  times?: Record<string, number>;
   /** Its changes have been taken back, and can be put back again. */
   undone?: boolean;
 };
@@ -124,7 +123,15 @@ export const useCommentsStore = create<CommentsState>()((set) => ({
 
 const patch = (id: string, change: Partial<Comment>) =>
   useCommentsStore.setState((state) => ({
-    comments: state.comments.map((one) => (one.id === id ? { ...one, ...change } : one)),
+    comments: state.comments.map((one) => {
+      if (one.id !== id) return one;
+      // A message is timed from the moment it first shows up in the thread.
+      const fresh = change.messages?.filter((message) => !one.times?.[message.id]);
+      const times = fresh?.length
+        ? { ...one.times, ...Object.fromEntries(fresh.map((message) => [message.id, Date.now()])) }
+        : one.times;
+      return { ...one, ...change, times };
+    }),
   }));
 
 const commentOf = (id: string) => useCommentsStore.getState().comments.find((one) => one.id === id);
@@ -153,19 +160,8 @@ class StoreChatState implements ChatState<UIMessage> {
     return commentOf(this.id)?.status ?? "ready";
   }
   set status(status: ChatStatus) {
-    const was = this.status;
-    const busy = status === "submitted" || status === "streaming";
-    const wasBusy = was === "submitted" || was === "streaming";
-    // Timed from what was asked, not from each step: the agent picks back up
-    // after every edit it makes, and those restarts are all one piece of work.
-    const asked = this.messages.at(-1)?.role === "user";
-    patch(this.id, {
-      status,
-      ...(busy && !wasBusy && asked ? { startedAt: Date.now() } : {}),
-      ...(busy ? { finishedAt: undefined } : {}),
-      ...(!busy && wasBusy ? { finishedAt: Date.now() } : {}),
-    });
-    if (!busy) this.track([]);
+    patch(this.id, { status });
+    if (status !== "submitted" && status !== "streaming") this.track([]);
   }
   get error() {
     return commentOf(this.id)?.error;
@@ -307,7 +303,6 @@ export function submitDraft(text: string) {
   useCommentsStore.setState({ comments: [...comments, comment], draft: null, open: comment.id });
   if (via === "chat") {
     inChat = comment.id;
-    patch(comment.id, { startedAt: Date.now() });
     void link!.send(comment.id, words);
   } else {
     void chatFor(comment.id).sendMessage({ text: words });
@@ -322,7 +317,7 @@ export async function reply(id: string, text: string) {
   const words = text.trim();
   if (!words) return;
   if (commentOf(id)?.via === "chat" && link) {
-    patch(id, { resolved: false, undone: false, startedAt: Date.now(), finishedAt: undefined });
+    patch(id, { resolved: false, undone: false });
     inChat = id;
     return link.send(id, words);
   }
@@ -358,11 +353,16 @@ export const isAsking = (comment: Comment) => {
 export const askedIn = (comment: Comment) =>
   textOf(comment.messages.find((message) => message.role === "user"));
 
-/** How long its agent last worked, as a short duration. */
-export function workedFor(comment: Comment) {
-  if (!comment.startedAt || !comment.finishedAt) return undefined;
-  const seconds = Math.max(1, Math.round((comment.finishedAt - comment.startedAt) / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+/** When something was said, the way Figma stamps a comment: "now", "3m", "2h", then the date. */
+export function shortAgo(at: number | undefined, now = Date.now()) {
+  if (!at) return "";
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 45) return "now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /**
@@ -523,18 +523,8 @@ export function mirrorChat(messages: readonly ChatMessage[], running: boolean) {
 
     const busy = running && lastAsk?.metadata?.custom?.commentId === comment.id;
     const status: ChatStatus = busy ? "streaming" : "ready";
-    const was = isRunning(comment);
-    const change: Partial<Comment> = { messages: mine, status };
-    // The clock started when it was sent (the chat's own timestamps move as
-    // it rebuilds its messages); it stops when the chat is done with it.
-    if (busy) change.finishedAt = undefined;
-    if (!busy && was) change.finishedAt = Date.now();
-    if (
-      JSON.stringify(mine) !== JSON.stringify(comment.messages) ||
-      status !== comment.status ||
-      Boolean(change.finishedAt) !== Boolean(comment.finishedAt)
-    ) {
-      patch(comment.id, change);
+    if (JSON.stringify(mine) !== JSON.stringify(comment.messages) || status !== comment.status) {
+      patch(comment.id, { messages: mine, status });
     }
   }
 }
