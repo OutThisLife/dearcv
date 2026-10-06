@@ -1,9 +1,40 @@
 diff --git a/lib/index.js b/lib/index.js
-index 18c2618f4630b3c1296c8c3cac317b8d7666bbe8..0f725564275453cac6589ca7c2c51c377ab0c59a 100644
+index 18c2618..681a845 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -3139,7 +3139,9 @@ const splitNodes = (height, contentArea, nodes) => {
+@@ -3114,11 +3114,16 @@ const SAFETY_THRESHOLD = 0.001;
+ const assingChildren = (children, node) => Object.assign({}, node, { children });
+ const getTop = (node) => node.box?.top || 0;
+ const allFixed = (nodes) => nodes.every(isFixed);
++// A box placed on the page itself, by its top: art laid over the flow. It
++// never splits and never asks for a page of its own; it goes to the page its
++// top falls on, carried there by its style, which each page lays out again.
++const isPlaced = (node) => node.style?.position === 'absolute' && typeof node.style.top === 'number';
++const onlyPlaced = (nodes) => nodes.every((node) => isFixed(node) || isPlaced(node));
+ const isDynamic$1 = (node) => node.props && 'render' in node.props;
+ const warnUnavailableSpace = (node) => {
+     console.warn(`Node of type ${node.type} can't wrap between pages and it's bigger than available page height`);
+ };
+-const splitNodes = (height, contentArea, nodes) => {
++const splitNodes = (height, contentArea, nodes, pageHeight) => {
+     const currentChildren = [];
+     const nextChildren = [];
+     for (let i = 0; i < nodes.length; i += 1) {
+@@ -3137,9 +3142,22 @@ const splitNodes = (height, contentArea, nodes) => {
+             currentChildren.push(child);
+             continue;
          }
++        if (pageHeight !== undefined && isPlaced(child)) {
++            if (child.style.top < pageHeight) {
++                currentChildren.push(child);
++            }
++            else {
++                const style = Object.assign({}, child.style, { top: child.style.top - pageHeight });
++                const box = Object.assign({}, child.box, { top: child.box.top - pageHeight });
++                nextChildren.push(Object.assign({}, child, { style, box }));
++            }
++            continue;
++        }
          if (isOutside) {
              const box = Object.assign({}, child.box, { top: child.box.top - height });
 -            const next = Object.assign({}, child, { box });
@@ -13,7 +44,7 @@ index 18c2618f4630b3c1296c8c3cac317b8d7666bbe8..0f725564275453cac6589ca7c2c51c37
              nextChildren.push(next);
              continue;
          }
-@@ -3155,7 +3157,8 @@ const splitNodes = (height, contentArea, nodes) => {
+@@ -3155,7 +3173,8 @@ const splitNodes = (height, contentArea, nodes) => {
                  wrap: true,
                  break: false,
              });
@@ -23,3 +54,19 @@ index 18c2618f4630b3c1296c8c3cac317b8d7666bbe8..0f725564275453cac6589ca7c2c51c37
              currentChildren.push(...futureFixedNodes);
              nextChildren.push(next, ...futureNodes);
              break;
+@@ -3239,13 +3258,13 @@ const splitPage$1 = (page, pageNumber, fontStore, yoga) => {
+     const contentArea = getContentArea(page);
+     const dynamicPage = resolveDynamicPage({ pageNumber }, page, fontStore, yoga);
+     const height = page.style.height;
+-    const [currentChilds, nextChilds] = splitNodes(wrapArea, contentArea, dynamicPage.children);
++    const [currentChilds, nextChilds] = splitNodes(wrapArea, contentArea, dynamicPage.children, height);
+     const relayout = (node) => 
+     // @ts-expect-error rework pagination
+     relayoutPage(node, fontStore, yoga);
+     const currentBox = { ...page.box, height };
+     const currentPage = relayout(Object.assign({}, page, { box: currentBox, children: currentChilds }));
+-    if (nextChilds.length === 0 || allFixed(nextChilds))
++    if (nextChilds.length === 0 || onlyPlaced(nextChilds))
+         return [currentPage, null];
+     const nextBox = omit('height', page.box);
+     const nextProps = omit('bookmark', page.props);

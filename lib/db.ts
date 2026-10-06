@@ -156,7 +156,73 @@ export async function forgetThreads(ids: string[]) {
   if (!sql || ids.length === 0) return 0;
 
   const rows = await sql`delete from threads where id = any(${ids}::uuid[]) returning id`;
+  // A thread's pictures go with it.
+  await sql`delete from assets where thread_id = any(${ids}::uuid[])`;
   return rows.length;
+}
+
+/**
+ * One picture on a resume, stored against its thread. Kept under the same
+ * bargain as the thread's own row — whoever is connected when it is first
+ * written owns it — and refused for a thread that belongs to someone else.
+ */
+export async function saveAsset(
+  threadId: string,
+  id: string,
+  asset: { mediaType: string; data: Uint8Array },
+  owner: string,
+) {
+  if (!sql || !isThreadId(threadId) || !isThreadId(id)) return false;
+
+  const [thread] = await sql`select owner_id from threads where id = ${threadId}`;
+  if (thread && thread.owner_id !== null && thread.owner_id !== owner) return false;
+
+  const rows = await sql`
+    insert into assets (thread_id, id, media_type, data, owner_id)
+    values (${threadId}, ${id}, ${asset.mediaType}, ${Buffer.from(asset.data)}, ${owner})
+    on conflict (thread_id, id) do nothing
+    returning id
+  `;
+  return rows.length > 0;
+}
+
+export async function loadAsset(threadId: string, id: string) {
+  if (!sql || !isThreadId(threadId) || !isThreadId(id)) return null;
+
+  const [row] = await sql`
+    select media_type, data, owner_id from assets where thread_id = ${threadId} and id = ${id}
+  `;
+  return row
+    ? {
+        mediaType: row.media_type as string,
+        data: row.data as Buffer,
+        ownerId: (row.owner_id ?? null) as string | null,
+      }
+    : null;
+}
+
+/** Pictures whose thread was never kept, once they are old enough to be sure it won't be. */
+export async function forgetOrphanAssets(hours: number) {
+  if (!sql) return 0;
+
+  const rows = await sql`
+    delete from assets a
+    where a.created_at < now() - make_interval(hours => ${hours})
+      and not exists (select 1 from threads t where t.id = a.thread_id)
+    returning a.id
+  `;
+  return rows.length;
+}
+
+/** How much a thread already holds in pictures, so one thread can't become a file host. */
+export async function assetBytes(threadId: string) {
+  if (!sql || !isThreadId(threadId)) return 0;
+
+  const [row] = await sql`
+    select coalesce(sum(octet_length(data)), 0)::bigint as bytes
+    from assets where thread_id = ${threadId}
+  `;
+  return Number(row?.bytes ?? 0);
 }
 
 /**

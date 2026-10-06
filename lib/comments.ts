@@ -9,7 +9,14 @@ import {
   type UIMessage,
 } from "ai";
 import { create } from "zustand";
-import { callText, runTool, toolCopying, toolSchemas, toolTarget } from "@/components/resume-tools";
+import {
+  callText,
+  layoutBrief,
+  runTool,
+  toolCopying,
+  toolSchemas,
+  toolTarget,
+} from "@/components/resume-tools";
 import { ensureCarried, follow } from "@/lib/resume/ingest";
 import { isEmptyResume } from "@/lib/resume/schema";
 import { useActivityStore } from "@/lib/store/activity";
@@ -232,15 +239,16 @@ function chatFor(id: string) {
           tools: toolSchemas(),
           comment: commentOf(id)?.where ?? "",
           undone: historyBrief(),
+          layout: layoutBrief(),
         };
       },
     }),
-    onToolCall: ({ toolCall }) => {
+    onToolCall: async ({ toolCall }) => {
       // Search and page reads run on the server and answer for themselves.
       if (!ours.has(toolCall.toolName)) return;
       const { toolName: tool, toolCallId } = toolCall;
       try {
-        const output = runTool(tool, toolCall.input, askOf(id));
+        const output = await runTool(tool, toolCall.input, askOf(id));
         void chat.addToolOutput({ tool, toolCallId, output });
       } catch (error) {
         const errorText = error instanceof Error ? error.message : String(error);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { artSchema } from "./art";
 import { typesetSchema } from "./typeset";
 
 /**
@@ -104,6 +105,11 @@ export const resumeContentSchema = z.object({
 
 export const resumeDocSchema = resumeContentSchema.extend({
   theme: resumeThemeSchema,
+  /**
+   * Drawings, pictures and pen strokes on the page. Apart from the content,
+   * so a rewrite of the words never takes the decoration with it.
+   */
+  art: z.array(artSchema).default([]),
 });
 
 export type ResumeLink = z.infer<typeof resumeLinkSchema>;
@@ -134,6 +140,7 @@ export const blankResume = (): ResumeDoc => ({
     links: [],
   },
   theme: defaultTheme(),
+  art: [],
   sections: [
     {
       id: "experience",
@@ -166,6 +173,7 @@ export const blankResume = (): ResumeDoc => ({
 export const uploadStub = (theme: ResumeTheme): ResumeDoc => ({
   basics: { name: "", links: [] },
   theme,
+  art: [],
   sections: [],
 });
 

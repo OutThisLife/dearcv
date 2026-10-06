@@ -6,7 +6,9 @@ import {
 } from "@assistant-ui/react";
 import { ingestPdf } from "@/lib/resume/ingest";
 import { isEmptyResume } from "@/lib/resume/schema";
+import { keepPicture, newAssetId, readPicture } from "@/lib/store/assets";
 import { useResumeStore } from "@/lib/store/resume";
+import { useThreadStore } from "@/lib/store/thread";
 
 /** Something is already on the right: an upload, or a document built in chat. */
 const resumeOpen = () => {
@@ -71,12 +73,40 @@ const pdfAttachment: AttachmentAdapter = {
 };
 
 /**
+ * An image attached to the chat is something to read — a screenshot, a job
+ * post — and just as often something to put on the page: a headshot, a logo,
+ * a drawing of their own. So it is kept as a picture of the thread as it is
+ * sent, and the model is told the asset id that places it.
+ */
+class PlaceableImageAdapter extends SimpleImageAttachmentAdapter {
+  override async send(attachment: Parameters<SimpleImageAttachmentAdapter["send"]>[0]) {
+    const sent = await super.send(attachment);
+    try {
+      const key = newAssetId();
+      await keepPicture(key, await readPicture(attachment.file), useThreadStore.getState().id);
+      return {
+        ...sent,
+        content: [
+          ...sent.content,
+          {
+            type: "text" as const,
+            text: `(${attachment.name} can go on the page as image "${key}".)`,
+          },
+        ],
+      };
+    } catch {
+      return sent;
+    }
+  }
+}
+
+/**
  * The runtime default accepts everything, which lets someone attach a zip the
  * model cannot open. These are the three kinds worth reading off a resume or a
  * profile, and naming them also filters the file picker.
  */
 export const attachments = new CompositeAttachmentAdapter([
-  new SimpleImageAttachmentAdapter(),
+  new PlaceableImageAdapter(),
   pdfAttachment,
   new SimpleTextAttachmentAdapter(),
 ]);

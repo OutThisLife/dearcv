@@ -20,6 +20,21 @@ alter table threads add column if not exists owner_id text;
 -- which one is on the page — so undo and redo survive a reload.
 alter table threads add column if not exists history jsonb;
 
+-- Pictures on a resume: ones it generated, and ones they attached. Kept here
+-- rather than in the document, which every step of the history copies, and
+-- rather than in the bucket, which only takes PDFs. A picture found on the
+-- web is not stored at all; the document keeps its address.
+create table if not exists assets (
+  thread_id uuid not null,
+  id uuid not null,
+  media_type text not null,
+  data bytea not null,
+  owner_id text,
+  created_at timestamptz not null default now(),
+  primary key (thread_id, id)
+);
+alter table assets enable row level security;
+
 -- Nothing looks a thread up by anything but its id, so this is the only index
 -- worth having: for sweeping abandoned threads later.
 create index if not exists threads_updated_at_idx on threads (updated_at);

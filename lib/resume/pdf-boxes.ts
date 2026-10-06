@@ -37,6 +37,8 @@ export const boxIds = {
   basics: "basics",
   section: (id: string) => `section:${id}`,
   item: (id: string) => `item:${id}`,
+  /** A drawing, picture or stroke on the page. */
+  art: (id: string) => `art:${id}`,
 };
 
 export function readPdfBoxes(document: unknown): PdfBoxes {
@@ -123,6 +125,17 @@ export function changedBoxes(from: ResumeDoc, to: ResumeDoc): string[] {
       .find((one) => to.sections.some((kept) => kept.id === one.id));
     if (next) changed.add(boxIds.section(next.id));
   });
+
+  // Art that appeared or changed is its own box; art that went has none, so
+  // whatever it was pinned to stands in, or the page for a loose piece.
+  const wasArt = new Map((from.art ?? []).map((piece) => [piece.id, piece]));
+  for (const piece of to.art ?? []) {
+    if (!same(wasArt.get(piece.id), piece)) changed.add(boxIds.art(piece.id));
+  }
+  for (const piece of from.art ?? []) {
+    if (to.art?.some((one) => one.id === piece.id)) continue;
+    changed.add(piece.anchor ?? boxIds.page);
+  }
 
   return [...changed];
 }

@@ -12,7 +12,7 @@ import { Thread } from "@/components/assistant-ui/thread";
 import { AuthDialog } from "@/components/auth-dialog";
 import { ComposerDraft } from "@/components/composer-draft";
 import { DearCvWordmark } from "@/components/dearcv-wordmark";
-import { ResumeTools } from "@/components/resume-tools";
+import { layoutBrief, ResumeTools } from "@/components/resume-tools";
 import { Button } from "@/components/ui/button";
 import { attachments } from "@/lib/attachments";
 import { ensureCarried } from "@/lib/resume/ingest";
@@ -82,6 +82,8 @@ export function Assistant() {
           comment: chatCommentWhere(),
           // Set while they are looking at an earlier step: what they took back.
           undone: historyBrief(),
+          // Where everything is on the paper, so art can be placed around it.
+          layout: layoutBrief(),
         };
       },
     }),

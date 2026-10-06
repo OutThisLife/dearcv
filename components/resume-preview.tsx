@@ -5,6 +5,7 @@ import { usePdfRender } from "@/hooks/use-pdf-render";
 import { PdfFileIcon } from "@/components/pdf-file-icon";
 import { ResumeHistory } from "@/components/resume-history";
 import { ResumeActivity } from "@/components/resume-activity";
+import { BrushBar, ResumeBrush } from "@/components/resume-brush";
 import { ResumeComments } from "@/components/resume-comments";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -76,6 +77,7 @@ export function ResumePreview() {
             />
             <ResumeActivity boxes={boxes} drawnAt={drawnAt} pages={pages} />
             <ResumeComments boxes={boxes} pages={pages} />
+            <ResumeBrush pages={pages} />
           </div>
         ) : failed ? (
           <EmptyState
@@ -102,6 +104,7 @@ export function ResumePreview() {
           <Thinking label="Reading your resume" />
         </Notice>
       ) : null}
+      {renderUrl && !empty && !replay ? <BrushBar /> : null}
       <ResumeHistory />
     </div>
   );

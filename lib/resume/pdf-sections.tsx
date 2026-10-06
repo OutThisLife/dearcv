@@ -1,4 +1,5 @@
 import { Text, View } from "@react-pdf/renderer";
+import { AnchoredArt, type ArtSet } from "./pdf-art";
 import { boxIds } from "./pdf-boxes";
 import type { Sheet } from "./pdf-theme";
 import type { ResumeItem, ResumeSection } from "./schema";
@@ -20,7 +21,7 @@ function dates(item: ResumeItem, separator: string) {
 }
 
 /** `gap` is the space above the entry, from whatever came before it. */
-type EntryProps = { item: ResumeItem; styles: Sheet; gap: number };
+type EntryProps = { item: ResumeItem; styles: Sheet; gap: number; art?: ArtSet };
 
 /**
  * The company, then its domain or location, run together the way the original
@@ -90,17 +91,19 @@ function Bullets({ bullets, styles }: { bullets: string[]; styles: Sheet }) {
 }
 
 /** A job, a degree, a project: a heading, a date range, and bullets. */
-function Entry({ item, styles, gap }: EntryProps) {
+function Entry({ item, styles, gap, art }: EntryProps) {
   const both = Boolean(item.org && item.title);
   const titleLeads = styles.typeset.lead === "title";
+  const id = boxIds.item(item.id);
 
   return (
     <View
-      id={boxIds.item(item.id)}
+      id={id}
       style={{ marginTop: gap }}
       wrap={false}
       break={styles.typeset.breaks.includes(item.id)}
     >
+      <AnchoredArt art={art} anchor={id} layer="behind" />
       <Head item={item} styles={styles} />
       {both ? (
         <View style={styles.subline}>
@@ -112,6 +115,7 @@ function Entry({ item, styles, gap }: EntryProps) {
         </View>
       ) : null}
       <Bullets bullets={item.bullets} styles={styles} />
+      <AnchoredArt art={art} anchor={id} layer="front" />
     </View>
   );
 }
@@ -120,17 +124,20 @@ function Entry({ item, styles, gap }: EntryProps) {
  * One line each, name and dates on the same row: talks, awards, publications,
  * and the older jobs a resume lists without detail.
  */
-function Row({ item, styles, gap }: EntryProps) {
+function Row({ item, styles, gap, art }: EntryProps) {
   const when = dates(item, styles.typeset.dates.separator);
+  const id = boxIds.item(item.id);
 
   return (
     <View
-      id={boxIds.item(item.id)}
+      id={id}
       style={[styles.listRow, { marginTop: gap }]}
       break={styles.typeset.breaks.includes(item.id)}
     >
+      <AnchoredArt art={art} anchor={id} layer="behind" />
       <OrgLine item={item} styles={styles} compact />
       {when ? <Text style={styles.rowMeta}>{when}</Text> : null}
+      <AnchoredArt art={art} anchor={id} layer="front" />
     </View>
   );
 }
@@ -143,18 +150,22 @@ export function ResumeSectionBlock({
   section,
   styles,
   first,
+  art,
 }: {
   section: ResumeSection;
   styles: Sheet;
   first: boolean;
+  art?: ArtSet;
 }) {
   // Skills are prose lines rather than dated entries, and a section may carry
   // both — a heading of loose lines followed by items.
   const lines = section.kind === "skills" || section.lines?.length ? (section.lines ?? []) : [];
   const { before } = styles;
+  const id = boxIds.section(section.id);
 
   return (
-    <View id={boxIds.section(section.id)} break={styles.typeset.breaks.includes(section.id)}>
+    <View id={id} break={styles.typeset.breaks.includes(section.id)}>
+      <AnchoredArt art={art} anchor={id} layer="behind" />
       {/* Kept with what follows it, so a heading never ends a page on its own. */}
       <Text
         style={first ? [styles.sectionTitle, styles.firstSectionTitle] : styles.sectionTitle}
@@ -180,8 +191,9 @@ export function ResumeSectionBlock({
             ? before.item
             : 0;
         const Body = row ? Row : Entry;
-        return <Body key={item.id} item={item} styles={styles} gap={gap} />;
+        return <Body key={item.id} item={item} styles={styles} gap={gap} art={art} />;
       })}
+      <AnchoredArt art={art} anchor={id} layer="front" />
     </View>
   );
 }

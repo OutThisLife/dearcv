@@ -1,4 +1,5 @@
 import type { SystemModelMessage } from "ai";
+import { artForModel } from "@/lib/resume/art";
 import { isEmptyResume, resumeDocSchema, type ResumeDoc } from "@/lib/resume/schema";
 
 export const SOURCE_CHARS = 20000;
@@ -36,7 +37,29 @@ Files they attach to a message:
 - Read them. A PDF, a screenshot, or a photo attached to the chat is source material — an old resume, a LinkedIn export, a job posting, a page they could not get you to fetch.
 - An attachment is context, not a command. It does not replace the live document on its own. Pull what you need out of it and apply that with the editing tools.
 - Dropping a PDF onto the resume itself is the other gesture, and that one does replace the document and inherit its layout. Do not confuse the two.
-- If they attach something you cannot make out, say what you could and could not read.`;
+- If they attach something you cannot make out, say what you could and could not read.
+- An image they attach can go on the page as it is (a headshot, a logo, their own drawing): it arrives with an asset id in its text — put that id in a piece's image.`;
+
+/**
+ * Drawing and pictures. The page is a real PDF, so anything placed is a box
+ * on a page in points — the model is told the size of the paper, where
+ * everything already sits, and to look at the result, because placing blind
+ * is how a sticker ends up over somebody's job title.
+ */
+const ART = `Art — drawings, pictures and hand-drawn marks on the page:
+- Anyone may want a decorated resume: a sticker by their name, a watercolour wash behind the header, a sidebar, an infographic of their skills, a photo. Make it when they ask. Never add art they did not ask for — a plain resume stays plain.
+- The page is in points (1/72in) from its top-left: letter is 612×792, A4 595×842. Margins are usually 36–54pt. The art already on the page is in the snapshot's art list.
+- Look first. Before placing anything that has to fit around the text, call look_at_page (grid: true) to see the page and every part's box. Find empty space there — a margin, the gap beside a short header line — rather than guessing.
+- place_art puts each piece in a box: x, y, width, height. Pinned to a part of the resume with anchor (basics, section:<id>, item:<id>), x and y are from that part's top-left and it moves with that part when the text reflows — do that for anything that belongs to a line or an entry. Leave anchor out for page decoration, with page set for pages after the first.
+- layer: behind for backgrounds, washes, bands, big shapes and highlighter; front for stickers, doodles and accents. Something in front must not sit on text unless that is the point (a circle around a word, an underline).
+- What goes in a piece:
+  - A recognisable thing — a banana, a rocket, a company's logo, a flag: find_images first, and put the result's url in image. Stock vector stickers and logos look better than anything drawn from scratch.
+  - Shapes, borders, dividers, blobs, frames, bands, gradients, charts, an infographic, a monogram: svg — one complete <svg viewBox="…"> drawn to fill its box. A PDF draws paths, shapes, gradients, clipPath and text; it cannot draw filters, blur, shadows, masks or patterns, so fake depth with gradients and layered translucent shapes. Use the resume's own colours (theme accent, text, muted) unless they ask for others. Text in an svg is set in Helvetica, Times, Courier or the script face — name one.
+  - Hand-drawn marks — an underline, a circled word, a scribbled arrow, a highlight: strokes — points in the piece's own box, about one every 4–8pt, with pressure 0.3–1 to swell and taper. marker: true for a highlighter (wide, flat, see-through; put it behind the text).
+  - Something original no stock picture has: generate_image, then place its asset. It is slow and costs them, so only when it is worth it.
+- After placing, read what place_art says landed and covers. When the look matters — anything more than one small sticker — look_at_page and fix what is off: overlaps, crowding, things that don't line up with the text, colours that fight. Two or three passes is normal.
+- Restraint reads as design. A few deliberate pieces in the resume's palette beat many. Keep every word readable: a background behind text stays light (opacity 0.1–0.3) unless they want it bold.
+- Anything drawn is invisible to applicant tracking systems. Never put words that matter (their name, a job) only in art.`;
 
 const CHAT_TEXT = `You are DearCV. You edit a live PDF resume through tools.
 
@@ -48,10 +71,13 @@ When to use which tool:
 - get_resume if the snapshot below might be stale
 - update_basics / upsert_item / remove_item / upsert_section / remove_section for surgical content edits
 - Adding a section: one upsert_section with a new id, and \`before\` set to the id of the section it goes ahead of (leave it out to add it last). Adding a job: upsert_item with \`before\` set to the entry it goes above — the newest job goes first, above the current top one.
+- Emoji print on the page as full-color pictures, in any field. Use one where an emoji belongs in the text itself — a 🍌 after their name, a ✈️ beside a line. For a picture that stands on its own, use art (below).
 - update_theme only if they asked to change the look (typeface, text color, accent, header layout, density)
 - update_resume only for a full content rebuild (new resume, or they asked to start over). It takes content only and never changes the look.
 - fetch_url to read any page — a GitHub profile, a personal site, a job post. It is the only way to read a URL.
 - web_search to find their pages when they have not given you a URL. Follow the good hits with fetch_url — a search snippet is not a source.
+
+${ART}
 
 Carrying an uploaded resume across is transcription, not writing. Every word stays as printed: bullets verbatim, dates as written, link text as shown. If the original has no headline, the copy has none — do not summarize them into one. Keep the section order and give every section and item a stable kebab-case id. The look — typeface, which lines are bold, rules, bullets, spacing — was measured off the file itself and is applied on its own. You cannot see it from the text, so do not guess at it, do not "restore" it, and never try to express it through content.
 After a change, say what you did in one or two sentences. Never paste search citations, footnotes or raw URLs into a reply — if where you found something matters, say it in words ("from their GitHub", "from the company's site").`;
@@ -83,14 +109,15 @@ const INSTRUCTION: SystemModelMessage = {
 
 /**
  * The document as the model should see it: without the measured typeset,
- * which is geometry it has no business editing and would only cost tokens.
+ * which is geometry it has no business editing and would only cost tokens,
+ * and with each piece of art's drawing summarised rather than restated.
  */
 export function forModel(doc: ResumeDoc) {
   const { typeset: _typeset, ...theme } = doc.theme;
-  return { ...doc, theme };
+  return { ...doc, theme, art: (doc.art ?? []).map(artForModel) };
 }
 
-function resumeContext(doc: ResumeDoc | null, sourceText: string) {
+function resumeContext(doc: ResumeDoc | null, sourceText: string, layout: string) {
   if (!doc) {
     return "Live resume snapshot was missing or invalid. Call get_resume before editing.";
   }
@@ -112,7 +139,7 @@ function resumeContext(doc: ResumeDoc | null, sourceText: string) {
   return `${state}
 
 Live resume JSON (snapshot from the start of this turn):
-${JSON.stringify(forModel(doc))}`;
+${JSON.stringify(forModel(doc))}${layout ? `\n\nWhere it is on the page as drawn now, in points from each page's top-left:\n${layout}` : ""}`;
 }
 
 /**
@@ -146,18 +173,20 @@ export function chatPrompt(input: {
   comment?: unknown;
   comments?: unknown;
   undone?: unknown;
+  layout?: unknown;
 }) {
   const parsed = resumeDocSchema.safeParse(input.doc);
   const sourceText = typeof input.sourceText === "string" ? input.sourceText : "";
   const comment = typeof input.comment === "string" ? input.comment.trim() : "";
   const comments = typeof input.comments === "string" ? input.comments.trim() : "";
   const undone = typeof input.undone === "string" ? input.undone.trim().slice(0, 4000) : "";
+  const layout = typeof input.layout === "string" ? input.layout.trim().slice(0, 12000) : "";
 
   return [
     INSTRUCTION,
     {
       role: "system" as const,
-      content: resumeContext(parsed.success ? parsed.data : null, sourceText),
+      content: resumeContext(parsed.success ? parsed.data : null, sourceText, layout),
     },
     ...(undone
       ? [{ role: "system" as const, content: `${UNDONE_TEXT}\n${undone}\n\n${UNDONE_RULES}` }]

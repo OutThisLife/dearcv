@@ -1,9 +1,18 @@
 import { Link, Text, View } from "@react-pdf/renderer";
+import { AnchoredArt, type ArtSet } from "./pdf-art";
 import { boxIds } from "./pdf-boxes";
 import type { Sheet } from "./pdf-theme";
 import type { ResumeDoc, ResumeTheme } from "./schema";
 
-type HeaderProps = { doc: ResumeDoc; styles: Sheet };
+type HeaderProps = { doc: ResumeDoc; styles: Sheet; art?: ArtSet };
+
+/** Art pinned to the header: drawn first to sit under its text, last to sit over it. */
+const Behind = ({ art }: { art?: ArtSet }) => (
+  <AnchoredArt art={art} anchor={boxIds.basics} layer="behind" />
+);
+const Front = ({ art }: { art?: ArtSet }) => (
+  <AnchoredArt art={art} anchor={boxIds.basics} layer="front" />
+);
 
 /**
  * Email and links stay clickable, the rest is plain. Built once and placed by
@@ -55,7 +64,7 @@ function Named({ doc, styles }: HeaderProps) {
 }
 
 /** Name left, contact right. */
-function SplitHeader({ doc, styles }: HeaderProps) {
+function SplitHeader({ doc, styles, art }: HeaderProps) {
   return (
     <View
       id={boxIds.basics}
@@ -66,43 +75,51 @@ function SplitHeader({ doc, styles }: HeaderProps) {
         gap: 16,
       }}
     >
+      <Behind art={art} />
       <View style={{ flex: 1 }}>
         <Named doc={doc} styles={styles} />
       </View>
       <View style={{ maxWidth: "46%", alignItems: "flex-end" }}>
         <ContactLine doc={doc} styles={styles} />
       </View>
+      <Front art={art} />
     </View>
   );
 }
 
 /** Handwriting above the printed name. */
-function SignatureHeader({ doc, styles }: HeaderProps) {
+function SignatureHeader({ doc, styles, art }: HeaderProps) {
   return (
     <View id={boxIds.basics}>
+      <Behind art={art} />
       <Text style={styles.signature}>{doc.theme.signature || doc.basics.name}</Text>
       <Named doc={doc} styles={styles} />
       <ContactLine doc={doc} styles={styles} />
+      <Front art={art} />
     </View>
   );
 }
 
 /** Everything stacked and centred. */
-function CenteredHeader({ doc, styles }: HeaderProps) {
+function CenteredHeader({ doc, styles, art }: HeaderProps) {
   return (
     <View id={boxIds.basics} style={{ alignItems: "center" }}>
+      <Behind art={art} />
       <Named doc={doc} styles={styles} />
       <ContactLine doc={doc} styles={styles} />
+      <Front art={art} />
     </View>
   );
 }
 
 /** Everything stacked flush left. */
-function LeftHeader({ doc, styles }: HeaderProps) {
+function LeftHeader({ doc, styles, art }: HeaderProps) {
   return (
     <View id={boxIds.basics} style={{ alignItems: "flex-start" }}>
+      <Behind art={art} />
       <Named doc={doc} styles={styles} />
       <ContactLine doc={doc} styles={styles} />
+      <Front art={art} />
     </View>
   );
 }
@@ -120,7 +137,7 @@ const HEADERS: Record<ResumeTheme["header"], (props: HeaderProps) => React.React
   "accent-bar": CenteredHeader,
 };
 
-export function ResumeHeader({ doc, styles }: HeaderProps) {
+export function ResumeHeader({ doc, styles, art }: HeaderProps) {
   const Header = HEADERS[doc.theme.header] ?? CenteredHeader;
-  return <Header doc={doc} styles={styles} />;
+  return <Header doc={doc} styles={styles} art={art} />;
 }

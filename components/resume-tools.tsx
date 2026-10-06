@@ -1,9 +1,12 @@
 "use client";
 
-import { useAssistantTool, useAui } from "@assistant-ui/react";
+import { useAssistantTool, useAssistantToolUI, useAui } from "@assistant-ui/react";
 import { useEffect } from "react";
 import { z } from "zod";
 import { toolLabel } from "@/components/assistant-ui/elements/tool-label";
+import { artSchema, PAGE_SIZE } from "@/lib/resume/art";
+import { anchorsOf, landing, partNames, settleArt } from "@/lib/resume/art-edit";
+import { describeLayout, shootPages } from "@/lib/resume/look";
 import { boxIds } from "@/lib/resume/pdf-boxes";
 import {
   isEmptyResume,
@@ -18,10 +21,14 @@ import { forModel } from "@/lib/prompts";
 import { follow } from "@/lib/resume/ingest";
 import { latestText } from "@/lib/resume/reading-head";
 import { restyle } from "@/lib/resume/restyle";
+import { withPictures } from "@/lib/tool-pictures";
 import { useActivityStore } from "@/lib/store/activity";
 import { type Ask, useHistoryStore } from "@/lib/store/history";
+import { whenDrawn, useLayoutStore } from "@/lib/store/layout";
+import { keepMade } from "@/lib/store/assets";
 import { useMarksStore } from "@/lib/store/marks";
 import { useResumeStore } from "@/lib/store/resume";
+import { useThreadStore } from "@/lib/store/thread";
 
 const sectionRef = z.object({
   sectionId: z.string().describe("Id of an existing section."),
@@ -181,7 +188,8 @@ const TOOLS = [
     target: () => boxIds.page,
     copies: (args) => args,
     run: (content) => {
-      resume().replaceContent({ ...content, theme: resume().doc.theme });
+      // A rebuild is content only: the look and the art on the page stay.
+      resume().replaceContent({ ...content, theme: resume().doc.theme, art: resume().doc.art });
       // Everything moved, so the page is what changed.
       useMarksStore.getState().clearMarks();
       mark(boxIds.page);
@@ -290,6 +298,117 @@ const TOOLS = [
       return { ok: true, sectionId, itemId };
     },
   }),
+  defineTool({
+    name: "place_art",
+    description:
+      "Add or change art on the page — a drawing (svg), a picture (image), or hand-drawn pen or highlighter lines (strokes) — in a box of its own, behind the text or in front of it, on a page or pinned to a part of the resume. Send several pieces in one call. To change a piece, send its id and only what changes. Returns where each piece landed on the redrawn page and any text it now covers: check it, then look_at_page when the result matters.",
+    parameters: z.object({
+      pieces: z
+        .array(artSchema.partial().required({ id: true }))
+        .min(1)
+        .describe(
+          "New pieces need content (svg, image or strokes), x, y, width and height. Existing ones only what changes.",
+        ),
+    }),
+    label: "Drew on the page",
+    addedLabel: "Added art",
+    detail: (args) =>
+      args.pieces
+        ?.map((piece) => piece?.label ?? piece?.id)
+        .filter(Boolean)
+        .join(", "),
+    step: ({ pieces }, before) =>
+      `${pieces.every((piece) => !before.art?.some((one) => one.id === piece.id)) ? "Added" : "Changed"} ${pieces
+        .map(
+          (piece) =>
+            piece.label ?? before.art?.find((one) => one.id === piece.id)?.label ?? piece.id,
+        )
+        .join(", ")}`,
+    target: ({ pieces }, doc) => {
+      const first = pieces?.[0];
+      if (!first?.id) return boxIds.page;
+      if (doc.art?.some((piece) => piece.id === first.id)) return boxIds.art(first.id);
+      return first.anchor && anchorsOf(doc).has(first.anchor) ? first.anchor : boxIds.page;
+    },
+    run: async ({ pieces }) => {
+      const doc = resume().doc;
+      const { art, added, notes } = await settleArt(pieces, doc, useThreadStore.getState().id);
+      resume().patchDoc({ art });
+      const now = resume().doc;
+      pieces.forEach((piece) => mark(boxIds.art(piece.id)));
+      const drawn = await whenDrawn(now);
+      if (drawn.error) throw new Error(`The page couldn't be drawn with that art: ${drawn.error}`);
+      return {
+        ok: true,
+        added: added.length > 0,
+        placed: landing(
+          pieces.map((piece) => piece.id),
+          now,
+          drawn.boxes,
+          drawn.pages,
+        ),
+        ...(notes.length ? { notes } : {}),
+      };
+    },
+  }),
+  defineTool({
+    name: "remove_art",
+    description: "Take art off the page, by id.",
+    parameters: z.object({ ids: z.array(z.string()).min(1) }),
+    label: "Removed art",
+    detail: (args) => args.ids?.join(", "),
+    step: ({ ids }, before) =>
+      `Removed ${ids.map((id) => before.art?.find((piece) => piece.id === id)?.label ?? id).join(", ")}`,
+    target: ({ ids }) => (ids?.[0] ? boxIds.art(ids[0]) : undefined),
+    run: ({ ids }) => {
+      const art = resume().doc.art ?? [];
+      const unknown = ids.filter((id) => !art.some((piece) => piece.id === id));
+      if (unknown.length === ids.length) missing("art", unknown[0]!);
+      resume().patchDoc({ art: art.filter((piece) => !ids.includes(piece.id)) });
+      return { ok: true, removed: ids.filter((id) => !unknown.includes(id)) };
+    },
+  }),
+  defineTool({
+    name: "look_at_page",
+    description:
+      "See the resume exactly as it prints: a picture of each page, and every part's box in page points. Use it before placing art, to find space and line things up, and after, to check what you made — overlaps, balance, legibility — and fix what is off. grid rules a light 50pt grid with labelled edges, to read positions off.",
+    parameters: z.object({
+      pages: z
+        .array(z.number().int().min(1))
+        .optional()
+        .describe("Which pages, from 1. All (up to 3) by default."),
+      grid: z.boolean().optional(),
+    }),
+    beforeCarry: true,
+    label: "Looked at the page",
+    target: () => undefined,
+    run: async ({ pages, grid }) => {
+      const doc = resume().doc;
+      const drawn = await whenDrawn(doc);
+      if (!drawn.url) {
+        throw new Error(
+          drawn.error
+            ? `The page couldn't be drawn: ${drawn.error}`
+            : "Nothing is on the page yet.",
+        );
+      }
+      const shots = await shootPages(drawn.url, { pages, grid });
+      const size = PAGE_SIZE[doc.theme.page] ?? PAGE_SIZE.letter;
+      const parts = describeLayout(drawn.boxes, partNames(doc));
+      const summary = {
+        page: { size: doc.theme.page, width: size.width, height: size.height, count: drawn.pages },
+        parts,
+      };
+      return withPictures(
+        summary,
+        `The resume as it prints: ${drawn.pages} page${drawn.pages === 1 ? "" : "s"} of ${size.width}×${size.height}pt. Parts, in page points from each page's top-left:\n${JSON.stringify(summary)}`,
+        shots.map((shot) => ({
+          ...shot,
+          caption: `Page ${shot.page}${grid ? " (50pt grid)" : ""}:`,
+        })),
+      );
+    },
+  }),
 ] as const;
 
 function ToolNote({ label, detail }: { label: string; detail?: string }) {
@@ -390,12 +509,14 @@ function untracked<T>(value: T): T {
   return value;
 }
 
-function applyEdit(spec: AnyTool, input: unknown, ask?: Ask) {
+async function applyEdit(spec: AnyTool, input: unknown, ask?: Ask) {
   const history = useHistoryStore.getState();
   history.begin();
   const before = resume().doc;
   input = untracked(input);
-  const result = spec.run(input as never);
+  // Awaited: placing art waits for the page to be redrawn, so it can say
+  // where things actually landed.
+  const result = await spec.run(input as never);
   history.record(spec.step?.(input as never, before) ?? spec.label, ask);
   return result;
 }
@@ -407,10 +528,28 @@ function applyEdit(spec: AnyTool, input: unknown, ask?: Ask) {
  * tool's schema, refused until the upload is carried — so a call that drifts
  * fails loudly instead of half-applying.
  */
-export function runTool(name: string, input: unknown, ask?: Ask) {
+export async function runTool(name: string, input: unknown, ask?: Ask) {
   const spec = toolNamed(name);
   if (!spec.beforeCarry) needsCarry();
   return applyEdit(spec, spec.parameters.parse(input), ask);
+}
+
+/**
+ * Where everything sits on the page as last drawn, for the model to place
+ * art against without having to look first. One line per part, in points.
+ */
+export function layoutBrief() {
+  const { boxes, pages, doc } = useLayoutStore.getState();
+  if (!doc || !pages) return "";
+  const size = PAGE_SIZE[doc.theme.page] ?? PAGE_SIZE.letter;
+  const parts = describeLayout(boxes, partNames(doc));
+  return [
+    `Page: ${doc.theme.page}, ${size.width}×${size.height}pt, ${pages} page${pages === 1 ? "" : "s"}.`,
+    ...parts.map(
+      (part) =>
+        `${part.id}${part.name ? ` (${part.name})` : ""}: page ${part.page}, x ${part.x}, y ${part.y}, ${part.width}×${part.height}`,
+    ),
+  ].join("\n");
 }
 
 const toolNamed = (name: string) => {
@@ -510,6 +649,39 @@ export function ResumeTools() {
       {TOOLS.map((spec) => (
         <Tool key={spec.name} spec={spec as AnyTool} />
       ))}
+      <PictureTools />
     </>
+  );
+}
+
+/**
+ * The two picture tools that run on the server, as the transcript shows them.
+ * A made picture's bytes arrive once, in its result, and are kept here the
+ * moment they do — under the id the model was handed, so its next call can
+ * place it.
+ */
+function PictureTools() {
+  useAssistantToolUI({
+    toolName: "find_images",
+    render: ({ args }) => (
+      <ToolNote label="Looked for pictures" detail={(args as { query?: string })?.query} />
+    ),
+  });
+  useAssistantToolUI({
+    toolName: "generate_image",
+    render: ({ result, status }) => (
+      <MadePicture result={result} running={status.type === "running"} />
+    ),
+  });
+  return null;
+}
+
+function MadePicture({ result, running }: { result: unknown; running: boolean }) {
+  useEffect(() => keepMade(result, useThreadStore.getState().id), [result]);
+  const failed = (result as { ok?: boolean } | undefined)?.ok === false;
+  return (
+    <ToolNote
+      label={running ? "Painting a picture" : failed ? "Couldn't paint that" : "Painted a picture"}
+    />
   );
 }

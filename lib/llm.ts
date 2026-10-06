@@ -64,6 +64,23 @@ export function createModel(input: {
     return {
       model: input.plan ? wrapLanguageModel({ model, middleware: chatGptPlanMiddleware }) : model,
       search: openai.tools.webSearch({ searchContextSize: "low" }),
+      // A ChatGPT plan reaches only the chat models, not the image API.
+      image: input.plan
+        ? null
+        : (transparent: boolean) => ({
+            // GPT Image 2 can't leave the background see-through; 1 can.
+            model: openai.image(
+              process.env.RESUME_IMAGE_MODEL || (transparent ? "gpt-image-1" : "gpt-image-2"),
+            ),
+            providerOptions: {
+              openai: { quality: "medium", background: transparent ? "transparent" : "opaque" },
+            },
+            // GPT Image draws three sizes: square, landscape, portrait.
+            sizeOf: (aspect: string) => {
+              const [w = 1, h = 1] = aspect.split(":").map(Number);
+              return w === h ? "1024x1024" : w > h ? "1536x1024" : "1024x1536";
+            },
+          }),
     };
   }
   if (input.provider === "anthropic") {
@@ -71,6 +88,8 @@ export function createModel(input: {
     return {
       model: anthropic(input.model),
       search: anthropic.tools.webSearch_20250305({ maxUses: 3 }),
+      // Anthropic makes no pictures.
+      image: null,
     };
   }
 
@@ -96,6 +115,18 @@ export function createModel(input: {
       extraBody,
     }),
     search: openrouter.tools.webSearch({ engine: "auto", maxResults: 5 }),
+    // Billed to their own key like everything else. A sticker needs a
+    // see-through background, which only OpenAI's image models leave; Gemini
+    // paints the rest well and takes any shape.
+    image: (transparent: boolean) => ({
+      model: openrouter.imageModel(
+        process.env.RESUME_IMAGE_MODEL ||
+          (transparent ? "openai/gpt-image-2.5-flare" : "google/gemini-3.1-flash-image"),
+      ),
+      providerOptions: {
+        openrouter: transparent ? { background: "transparent", quality: "medium" } : {},
+      },
+    }),
   };
 }
 

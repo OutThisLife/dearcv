@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@assistant-ui/tap@0.9.15': f67045178d5fdd3871a2029e71863829dd7e082a43a5986aefb9504fd4741f98
-  '@react-pdf/layout@5.2.0': 3c7d7d5c5a70230605fa265ff8d820b312b638197de7058f453b0750fa47f5d8
+  '@react-pdf/layout@5.2.0': 5504d789768cf1436989e287511dccaf2bc25bf6787868546be783ac3a6a9428
   '@react-pdf/textkit@7.0.1': cb6bb796a15d2b264d60a76f41f077b684702cfb09738d20a45d78558ef959cb
 
 importers:
@@ -4229,7 +4229,7 @@ snapshots:
       jay-peg: 1.1.1
       png-js: 2.0.0
 
-  '@react-pdf/layout@5.2.0(patch_hash=3c7d7d5c5a70230605fa265ff8d820b312b638197de7058f453b0750fa47f5d8)':
+  '@react-pdf/layout@5.2.0(patch_hash=5504d789768cf1436989e287511dccaf2bc25bf6787868546be783ac3a6a9428)':
     dependencies:
       '@react-pdf/fns': 3.1.3
       '@react-pdf/image': 3.1.2
@@ -4270,7 +4270,7 @@ snapshots:
       '@babel/runtime': 7.29.7
       '@react-pdf/fns': 3.1.3
       '@react-pdf/font': 4.1.2
-      '@react-pdf/layout': 5.2.0(patch_hash=3c7d7d5c5a70230605fa265ff8d820b312b638197de7058f453b0750fa47f5d8)
+      '@react-pdf/layout': 5.2.0(patch_hash=5504d789768cf1436989e287511dccaf2bc25bf6787868546be783ac3a6a9428)
       '@react-pdf/primitives': 4.4.0
       '@react-pdf/reconciler': 2.0.0(react@19.2.8)
       '@react-pdf/render': 4.7.0

@@ -1,4 +1,10 @@
-import { canPersist, forgetThreads, knownPdfPaths, staleThreads } from "@/lib/db";
+import {
+  canPersist,
+  forgetOrphanAssets,
+  forgetThreads,
+  knownPdfPaths,
+  staleThreads,
+} from "@/lib/db";
 import { allFiles, canStore, removeFiles, threadFiles } from "@/lib/storage";
 
 /** How long a thread survives without being opened. */
@@ -30,13 +36,17 @@ export async function GET(req: Request) {
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
-  if (!canPersist() || !canStore()) return Response.json({ swept: 0, files: 0, orphans: 0 });
+  if (!canPersist()) return Response.json({ swept: 0, files: 0, orphans: 0, pictures: 0 });
 
   try {
+    // Pictures whose thread was never kept — a picture made in a session that
+    // never got a reply worth saving. Rows only, so no storage needed.
+    const pictures = await forgetOrphanAssets(GRACE_MS / 3_600_000);
+    if (!canStore()) return Response.json({ swept: 0, files: 0, orphans: 0, pictures });
     const { swept, files } = await sweepThreads();
     // After the threads, so the files they took with them are already gone
     // from the listing the second pass walks.
-    return Response.json({ swept, files, orphans: await sweepOrphans() });
+    return Response.json({ swept, files, orphans: await sweepOrphans(), pictures });
   } catch (error) {
     // All of this is safe to repeat: deleting a file twice is not an error, and
     // a thread whose files went but whose row stayed comes up again tomorrow.

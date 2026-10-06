@@ -20,6 +20,8 @@ export type Parts = {
   sections: Set<string>;
   /** Entries that changed, appeared or went. */
   items: Set<string>;
+  /** Pieces of art that changed, appeared or went. */
+  art: Set<string>;
 };
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -52,11 +54,19 @@ export function partsChanged(before: ResumeDoc, after: ResumeDoc): Parts {
     if (!was || !is || was.section !== is.section || !same(was.item, is.item)) items.add(id);
   }
 
+  const art = new Set<string>();
+  const wasArt = new Map((before.art ?? []).map((piece) => [piece.id, piece]));
+  const isArt = new Map((after.art ?? []).map((piece) => [piece.id, piece]));
+  for (const id of new Set([...wasArt.keys(), ...isArt.keys()])) {
+    if (!same(wasArt.get(id), isArt.get(id))) art.add(id);
+  }
+
   return {
     basics: !same(before.basics, after.basics),
     theme: !same(before.theme, after.theme),
     sections,
     items,
+    art,
   };
 }
 
@@ -98,10 +108,21 @@ export function restoreParts(current: ResumeDoc, source: ResumeDoc, parts: Parts
     if (was && home) home.items.splice(Math.min(was.index, home.items.length), 0, was.item);
   }
 
+  // Each piece of art back as it was, in its place, or gone if it wasn't there.
+  let art = [...(current.art ?? [])];
+  for (const id of parts.art) {
+    const at = art.findIndex((piece) => piece.id === id);
+    const from = (source.art ?? []).findIndex((piece) => piece.id === id);
+    if (at >= 0) art.splice(at, 1);
+    if (from >= 0) art.splice(Math.min(from, art.length), 0, source.art![from]!);
+  }
+  art = art.filter(Boolean);
+
   return {
     ...current,
     basics: parts.basics ? source.basics : current.basics,
     theme: parts.theme ? source.theme : current.theme,
     sections,
+    art,
   };
 }
