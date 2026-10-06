@@ -5,6 +5,7 @@ import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import type { PageBox } from "@/hooks/use-pdf-pages";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
+import type { TooltipGroupHandle } from "@/components/ui/tooltip";
 import { type Art, type ArtStroke, strokeAlpha, strokePath } from "@/lib/resume/art";
 import { useHistoryStore } from "@/lib/store/history";
 import { useMarksStore } from "@/lib/store/marks";
@@ -234,7 +235,7 @@ function useBrushKeys() {
  * The two drawing tools, for the page's toolbar (components/resume-history.tsx):
  * the held one inks in, as a tool in Figma's toolbar does.
  */
-export function BrushTools() {
+export function BrushTools({ group }: { group?: TooltipGroupHandle }) {
   const tool = useBrushStore((s) => s.tool);
   const setTool = useBrushStore((s) => s.setTool);
   const held = "bg-foreground text-background hover:bg-foreground/90 hover:text-background";
@@ -243,7 +244,7 @@ export function BrushTools() {
     <div role="toolbar" aria-label="Draw on the page" className="flex items-center gap-0.5">
       <TooltipIconButton
         tooltip="Pen · P"
-        side="top"
+        group={group}
         aria-pressed={tool === "pen"}
         onClick={() => setTool(tool === "pen" ? null : "pen")}
         className={cn("size-7 rounded-full", tool === "pen" && held)}
@@ -252,7 +253,7 @@ export function BrushTools() {
       </TooltipIconButton>
       <TooltipIconButton
         tooltip="Highlighter · H · ⇧ for straight"
-        side="top"
+        group={group}
         aria-pressed={tool === "marker"}
         onClick={() => setTool(tool === "marker" ? null : "marker")}
         className={cn("size-7 rounded-full", tool === "marker" && held)}

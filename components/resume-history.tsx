@@ -1,9 +1,15 @@
 "use client";
 
 import { MessageCirclePlusIcon, Redo2Icon, Undo2Icon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { BrushTools } from "@/components/resume-brush";
+import {
+  TooltipGroup,
+  type TooltipGroupHandle,
+  TooltipTrigger,
+  useTooltipGroup,
+} from "@/components/ui/tooltip";
 import { usePresence } from "@/hooks/use-presence";
 import { useCommentsStore } from "@/lib/comments";
 import { type Revision, useHistoryStore, useRevisions } from "@/lib/store/history";
@@ -19,8 +25,6 @@ const FLASH_MS = 1200;
 /** Each dot's slot, and the width of the bar that marks the current one. */
 const SLOT = 10;
 const BAR = 12;
-/** The dots' inset in their slot (px-2), for floating the name over one. */
-const INSET = 8;
 
 /** Whether focus is in something that takes typing. */
 const editable = (target: EventTarget | null): target is HTMLElement =>
@@ -88,7 +92,7 @@ const CIRCLE =
  *
  * History steps through every version of the resume this session, like
  * flicking through looks in a character creator: undo and redo either side,
- * a dot for each to jump straight to, its name floated above on hover.
+ * a dot for each to jump straight to, named in the bar's one gliding tip.
  *
  * Moves the way the chat beside it does: in as one piece on assistant-ui's
  * message entrance, out on its quicker beat, everything inside on its curve.
@@ -108,18 +112,19 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
     useHistoryStore.getState().go(to);
   };
 
-  // The name has no place of its own in the bar any more: it floats over a
-  // dot while that dot is pointed at, and for a moment after any step taken
-  // from elsewhere (a key, the buttons), so a step always says where it went.
-  const [pointed, setPointed] = useState<number | null>(null);
-  const [inside, setInside] = useState(false);
-  const [flashing, setFlashing] = useState(false);
+  // One tip for the whole bar, gliding from button to dot to button. A step
+  // taken from elsewhere — a key, undo, redo — opens it over the dot it landed
+  // on for a moment, so a step always says where it went.
+  const tips = useTooltipGroup();
+  const ids = useId();
+  const dot = (i: number) => `${ids}-step-${i}`;
   const seen = useRef(at);
   useEffect(() => {
     if (seen.current === at) return;
     seen.current = at;
-    setFlashing(true);
-    const timer = window.setTimeout(() => setFlashing(false), FLASH_MS);
+    if (revisions.length > MAX_DOTS || tips.isOpen) return;
+    tips.open(dot(at));
+    const timer = window.setTimeout(() => tips.close(), FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [at]);
 
@@ -154,8 +159,8 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
       >
         {tools ? (
           <>
-            <CommentTool />
-            <BrushTools />
+            <CommentTool group={tips} />
+            <BrushTools group={tips} />
           </>
         ) : null}
 
@@ -173,7 +178,7 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
             {tools ? <span aria-hidden className="bg-border mx-1 h-4 w-px" /> : null}
             <TooltipIconButton
               tooltip="Undo · ← or ⌘Z"
-              side="top"
+              group={tips}
               className={CIRCLE}
               disabled={at === 0}
               onClick={() => go(at - 1)}
@@ -181,30 +186,21 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
               <Undo2Icon className="size-3.5" />
             </TooltipIconButton>
 
-            <div
-              className="relative flex h-7 items-center justify-center px-2"
-              onPointerEnter={() => setInside(true)}
-              onPointerLeave={() => {
-                setInside(false);
-                setPointed(null);
-              }}
-            >
+            <div className="flex h-7 items-center justify-center px-2">
               {revisions.length > MAX_DOTS ? (
-                <span
-                  onPointerEnter={() => setPointed(at)}
-                  className="text-muted-foreground px-1 text-[0.6875rem] tabular-nums"
+                <TooltipTrigger
+                  handle={tips}
+                  payload={<StepTip revision={revisions[at]!} />}
+                  render={
+                    <span className="text-muted-foreground px-1 text-[0.6875rem] tabular-nums" />
+                  }
                 >
                   {at + 1} / {revisions.length}
-                </span>
+                </TooltipTrigger>
               ) : (
-                <Dots revisions={revisions} at={at} go={go} point={setPointed} />
+                <Dots revisions={revisions} at={at} go={go} tips={tips} id={dot} />
               )}
-              <StepLabel
-                revisions={revisions}
-                index={pointed ?? (flashing && !inside ? at : null)}
-                x={(i) => (revisions.length > MAX_DOTS ? undefined : INSET + i * SLOT + SLOT / 2)}
-              />
-              {/* What the label says, for anyone not looking at it. */}
+              {/* What the tip says, for anyone not looking at it. */}
               <span aria-live="polite" className="sr-only">
                 {revisions[at]?.label}
               </span>
@@ -212,7 +208,7 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
 
             <TooltipIconButton
               tooltip="Redo · → or ⇧⌘Z"
-              side="top"
+              group={tips}
               className={CIRCLE}
               disabled={at === revisions.length - 1}
               onClick={() => go(at + 1)}
@@ -222,17 +218,18 @@ export function ResumeHistory({ tools }: { tools: boolean }) {
           </div>
         ) : null}
       </div>
+      <TooltipGroup handle={tips} />
     </div>
   );
 }
 
 /** C, as a button: arms the next click on the page to drop a pin. */
-function CommentTool() {
+function CommentTool({ group }: { group: TooltipGroupHandle }) {
   const placing = useCommentsStore((s) => s.placing);
   return (
     <TooltipIconButton
       tooltip="Comment · C"
-      side="top"
+      group={group}
       aria-pressed={placing}
       onClick={() => useCommentsStore.getState().setPlacing(!placing)}
       className={cn(
@@ -245,74 +242,38 @@ function CommentTool() {
   );
 }
 
-/**
- * The step's name, floated over the bar rather than written in it: one label
- * that glides to whichever dot is pointed at — the way Linear's and Vercel's
- * toolbars move a single tooltip between items instead of popping one per
- * item — and shows itself for a moment after a step taken from the keyboard,
- * so ← → still say where they landed. In the tooltip's own ink and type, so
- * it reads as the app's tooltip, only smoother.
- */
-function StepLabel({
-  revisions,
-  index,
-  x,
-}: {
-  revisions: Revision[];
-  index: number | null;
-  x: (i: number) => number | undefined;
-}) {
-  const { mounted, closing } = usePresence(index !== null, EXIT_MS);
-  // Leaving, it keeps what it said rather than going blank as it fades.
-  const last = useRef(index ?? 0);
-  if (index !== null) last.current = index;
-  const revision = revisions[last.current];
-  if (!mounted || !revision) return null;
-
-  const left = x(last.current);
+/** What a step was: what was asked, in their words, and what it changed. */
+function StepTip({ revision }: { revision: Revision }) {
   const asked = revision.request && revision.label !== revision.changes[0];
   const changes =
     revision.changes.length > 1 || (revision.request && revision.changes.length)
       ? revision.changes.join(" · ")
       : "";
-
   return (
-    <div
-      aria-hidden
-      className="ease-aui pointer-events-none absolute bottom-full mb-3 transition-[left] duration-150 motion-reduce:transition-none"
-      style={{ left: left ?? "50%" }}
-    >
-      <div
-        className={cn(
-          "bg-foreground text-background relative flex w-max max-w-72 -translate-x-1/2 flex-col gap-0.5 rounded-md px-3 py-1.5 text-xs text-balance",
-          "animate-in fade-in zoom-in-95 slide-in-from-bottom-1 origin-bottom duration-150 motion-reduce:animate-none",
-          closing &&
-            "animate-out fade-out zoom-out-95 fill-mode-forwards duration-150 motion-reduce:animate-none",
-        )}
-      >
-        <span className="line-clamp-2">{asked ? `“${revision.label}”` : revision.label}</span>
-        {changes ? <span className="text-background/60">{changes}</span> : null}
-        <span className="bg-foreground absolute top-full left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[0.125rem]" />
-      </div>
-    </div>
+    <span className="flex flex-col gap-0.5 text-balance">
+      <span className="line-clamp-2">{asked ? `“${revision.label}”` : revision.label}</span>
+      {changes ? <span className="text-background/60">{changes}</span> : null}
+    </span>
   );
 }
 
 /**
  * A dot per version and one bar that slides between them, so the eye follows
- * the step instead of hunting for which dot lit up. Pointing at one names it
- * in the label above.
+ * the step instead of hunting for which dot lit up. Each names its step in
+ * the bar's tip.
  */
 function Dots({
   revisions,
   at,
   go,
-  point,
+  tips,
+  id,
 }: {
   revisions: Revision[];
   at: number;
   go: (to: number) => void;
-  point: (i: number | null) => void;
+  tips: TooltipGroupHandle;
+  id: (i: number) => string;
 }) {
   return (
     <div className="relative flex items-center">
@@ -322,21 +283,25 @@ function Dots({
         style={{ width: BAR, transform: `translateX(${at * SLOT + (SLOT - BAR) / 2}px)` }}
       />
       {revisions.map((revision, i) => (
-        <button
+        <TooltipTrigger
           key={i}
-          type="button"
-          aria-label={`Go to ${revision.label}`}
-          aria-current={i === at ? "step" : undefined}
-          onClick={() => go(i)}
-          onPointerEnter={() => point(i)}
-          onFocus={() => point(i)}
-          onBlur={() => point(null)}
-          style={{ width: SLOT }}
-          className="group grid h-7 cursor-pointer place-items-center outline-none"
+          id={id(i)}
+          handle={tips}
+          payload={<StepTip revision={revision} />}
+          render={
+            <button
+              type="button"
+              aria-label={`Go to ${revision.label}`}
+              aria-current={i === at ? "step" : undefined}
+              onClick={() => go(i)}
+              style={{ width: SLOT }}
+              className="group grid h-7 cursor-pointer place-items-center outline-none"
+            />
+          }
         >
           {/* Hover paints at once; only the way out eases. */}
           <span className="bg-foreground/20 group-hover:bg-foreground/60 group-focus-visible:bg-foreground/60 block size-1 rounded-full transition-colors duration-150 group-hover:transition-none" />
-        </button>
+        </TooltipTrigger>
       ))}
     </div>
   );

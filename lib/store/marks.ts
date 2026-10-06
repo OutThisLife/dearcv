@@ -29,7 +29,8 @@ export type Mark = { id: string; at: number };
 
 type MarksState = {
   marks: Mark[];
-  mark: (id: string) => void;
+  /** `drawn`: what it points at is on the paper already, so it flashes now rather than after the next redraw. */
+  mark: (id: string, options?: { drawn?: boolean }) => void;
   /** The preview, once this mark's flash has played. A newer mark of the same id stays. */
   unmark: (mark: Mark) => void;
   clearMarks: () => void;
@@ -37,8 +38,10 @@ type MarksState = {
 
 export const useMarksStore = create<MarksState>()((set, get) => ({
   marks: [],
-  mark: (id) => {
-    const mark = { id, at: Date.now() };
+  mark: (id, options) => {
+    // Already drawn, it is stamped as from before any drawing, which the
+    // preview takes as on the page now.
+    const mark = { id, at: options?.drawn ? 0 : Date.now() };
     set((state) => ({ marks: [...state.marks.filter((one) => one.id !== id), mark] }));
     window.setTimeout(() => get().unmark(mark), GIVE_UP_MS);
   },

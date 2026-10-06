@@ -436,6 +436,19 @@ const stepsOf = (id: string) => {
 export const hasChanges = (id: string) => stepsOf(id).length > 0;
 
 /**
+ * Flashes what a comment's agent changed, wherever on the page that is. The
+ * pin stays where it was dropped, and the edit it asked for can land a line
+ * or a section away from it; opening the thread shows where.
+ */
+export function showChanges(id: string) {
+  const changed = [
+    ...new Set(stepsOf(id).flatMap((step) => changedBoxes(step.before, step.after))),
+  ];
+  const { mark } = useMarksStore.getState();
+  changed.forEach((box) => mark(box, { drawn: true }));
+}
+
+/**
  * Takes back what a comment's agent did — only that, part by part, leaving
  * whatever else has happened to the page since — or puts it back. Either is
  * a step of its own in history, so ⌘Z walks back through it like any edit.
@@ -463,7 +476,7 @@ export function setUndone(id: string, undone: boolean) {
   // Shown the way the change was the first time: flashed where it lands.
   const changed = changedBoxes(was, doc);
   const marks = useMarksStore.getState();
-  changed.forEach(marks.mark);
+  changed.forEach((id) => marks.mark(id));
   if (changed[0]) useActivityStore.getState().point(changed[0]);
 
   patch(id, { undone });

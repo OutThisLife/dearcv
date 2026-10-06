@@ -9,6 +9,7 @@ import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
 import { CallNote } from "@/components/resume-tools";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { TooltipGroup, useTooltipGroup } from "@/components/ui/tooltip";
 import { GlyphSpinner } from "@/components/ui/glyph-spinner";
 import { Thinking } from "@/components/ui/thinking";
 import {
@@ -23,6 +24,7 @@ import {
   reply,
   setUndone,
   shortAgo,
+  showChanges,
   submitDraft,
   useCommentsStore,
 } from "@/lib/comments";
@@ -271,6 +273,12 @@ function Thread({ comment }: { comment: Comment }) {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [comment.messages]);
 
+  // Opening it shows what it changed, wherever that landed.
+  useEffect(() => {
+    if (!isRunning(comment)) showChanges(comment.id);
+  }, []);
+
+  const tips = useTooltipGroup();
   const reading = useReading();
   const busy = isRunning(comment);
   const place = placeOf(comment);
@@ -286,7 +294,7 @@ function Thread({ comment }: { comment: Comment }) {
         <div className="flex shrink-0 items-center">
           <TooltipIconButton
             tooltip="Resolve"
-            side="top"
+            group={tips}
             onClick={() => resolve(comment.id)}
             className="text-muted-foreground hover:text-foreground size-7 p-1.5"
           >
@@ -294,12 +302,13 @@ function Thread({ comment }: { comment: Comment }) {
           </TooltipIconButton>
           <TooltipIconButton
             tooltip="Delete"
-            side="top"
+            group={tips}
             onClick={() => remove(comment.id)}
             className="text-muted-foreground hover:text-foreground size-7 p-1.5"
           >
             <Trash2Icon />
           </TooltipIconButton>
+          <TooltipGroup handle={tips} />
         </div>
       </div>
       <div
@@ -365,13 +374,17 @@ function Thread({ comment }: { comment: Comment }) {
   );
 }
 
-/** A face for whoever said it: theirs in ink, DearCV's the logo's leaf on the pink of its pin. */
+/**
+ * A face for whoever said it: theirs in ink — a quiet grey at night, where
+ * ink is the brightest thing on the card — DearCV's the logo's leaf on the
+ * pink of its pin.
+ */
 function Face({ who }: { who: UIMessage["role"] }) {
   if (who === "user") {
     return (
       <span
         aria-hidden
-        className="bg-foreground text-background grid size-5 shrink-0 place-items-center rounded-full text-[0.5625rem] font-semibold"
+        className="bg-foreground text-background dark:bg-accent dark:text-foreground grid size-5 shrink-0 place-items-center rounded-full text-[0.5625rem] font-semibold"
       >
         Y
       </span>

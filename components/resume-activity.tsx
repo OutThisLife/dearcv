@@ -3,6 +3,7 @@
 import { MousePointer2Icon } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { PageBox } from "@/hooks/use-pdf-pages";
+import { useCommentsStore } from "@/lib/comments";
 import { boxIds, type PdfBoxes } from "@/lib/resume/pdf-boxes";
 import { HEAD, useActivityStore } from "@/lib/store/activity";
 import { FLASH, type Mark, SCAN, useMarksStore } from "@/lib/store/marks";
@@ -238,6 +239,9 @@ function Cursor({
   busy: boolean;
 }) {
   const cursor = useActivityStore((s) => s.cursor);
+  // A thread open on the page is where they are looking; the cursor would
+  // only tuck under its corner.
+  const covered = useCommentsStore((s) => Boolean(s.open || s.draft));
   const [idle, setIdle] = useState(true);
   const spot = useRef<{ at: number; x: number; y: number } | null>(null);
   const wasHidden = useRef(true);
@@ -269,7 +273,7 @@ function Cursor({
           };
   }
 
-  const visible = !idle && spot.current !== null;
+  const visible = !idle && !covered && spot.current !== null;
   // Arriving from hidden it is placed, not flown: no transition on that frame.
   const jump = visible && wasHidden.current;
   useEffect(() => {

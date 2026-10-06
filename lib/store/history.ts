@@ -128,7 +128,7 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
     useResumeStore.setState({ doc: revision.doc, touched: revision.touched });
     const marks = useMarksStore.getState();
     marks.clearMarks();
-    changed.forEach(marks.mark);
+    changed.forEach((id) => marks.mark(id));
     if (changed[0]) useActivityStore.getState().point(changed[0]);
     set({ at: to });
   },
