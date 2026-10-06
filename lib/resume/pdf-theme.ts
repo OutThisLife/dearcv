@@ -26,6 +26,18 @@ for (const face of FACES) {
   });
 }
 Font.register({ family: "Signature", src: "/fonts/GreatVibes-Regular.ttf" });
+// None of the faces carry emoji, so without a source one prints as a blank or a
+// box. react-pdf swaps each for an image instead: Noto Color Emoji, the set
+// Android and Google Docs draw, fetched only for the emoji a document uses.
+// Its files are named by lowercase code points, at least four digits, joined
+// with underscores and with the variation selector dropped ("#️⃣" → 0023_20e3).
+Font.registerEmojiSource({
+  builder: (code) =>
+    `https://fonts.gstatic.com/s/e/notoemoji/latest/${code
+      .split("-")
+      .map((point) => point.padStart(4, "0"))
+      .join("_")}/128.png`,
+});
 // react-pdf hyphenates by default. Word and Google Docs do not, and a resume
 // that suddenly breaks "develop-ment" no longer looks like itself.
 Font.registerHyphenationCallback((word) => [word]);
