@@ -290,7 +290,11 @@ export function artForModel(piece: Art) {
   const { svg, strokes, ...rest } = piece;
   return {
     ...rest,
-    ...(svg ? { svg: `(${svg.length} characters of SVG — send svg again only to redraw it)` } : {}),
+    ...(svg
+      ? {
+          svg: `(${svg.length} characters of SVG — get_resume with art: ["${piece.id}"] to read it, edit_text in art:${piece.id} to change part of it, or send svg again to redraw it)`,
+        }
+      : {}),
     ...(strokes
       ? {
           strokes: `(${strokes.length} hand-drawn ${strokes.length === 1 ? "line" : "lines"}, ${strokes[0]?.marker ? "highlighter" : "pen"} in ${strokes[0]?.color})`,

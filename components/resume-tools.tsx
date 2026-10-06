@@ -4,10 +4,11 @@ import { useAssistantTool, useAssistantToolUI, useAui } from "@assistant-ui/reac
 import { useEffect } from "react";
 import { z } from "zod";
 import { toolLabel } from "@/components/assistant-ui/elements/tool-label";
-import { artSchema, PAGE_SIZE } from "@/lib/resume/art";
+import { artSchema, PAGE_SIZE, readSvg } from "@/lib/resume/art";
 import { anchorsOf, landing, partNames, settleArt } from "@/lib/resume/art-edit";
-import { describeLayout, shootPages } from "@/lib/resume/look";
+import { describeLayout, shootPages, shootRegion } from "@/lib/resume/look";
 import { boxIds } from "@/lib/resume/pdf-boxes";
+import { applyTextEdits, type TextEdit, whereIs } from "@/lib/resume/text-edit";
 import {
   isEmptyResume,
   resumeBasicsSchema,
@@ -142,7 +143,7 @@ const needsCarry = () => {
   if (!isEmptyResume(doc) || !sourceText.trim()) return;
 
   throw new Error(
-    "The live document is still empty and their resume is the uploaded PDF already in your instructions. Carry it across in full with update_resume, then make this change.",
+    "The live document is still empty and their resume is the uploaded PDF, sent in full after the conversation. Carry it across in full with update_resume, then make this change.",
   );
 };
 
@@ -157,22 +158,33 @@ const TOOLS = [
   defineTool({
     name: "get_resume",
     description:
-      "Read the live resume document, and whether an uploaded PDF is still waiting to become one.",
-    parameters: z.object({}),
+      "Read the live resume document, and whether an uploaded PDF is still waiting to become one. Drawings come back summarised; name them in art to read their full SVG before editing part of it with edit_text.",
+    parameters: z.object({
+      art: z
+        .array(z.string())
+        .optional()
+        .describe("Ids of drawings to include in full, SVG and strokes as they are."),
+    }),
     beforeCarry: true,
     label: "Read resume",
     // A blank document is not the same as nothing to work from. Without the
     // upload alongside it, this reads as "they have no resume" while their
-    // resume is sitting in the instructions, unparsed.
-    run: () => {
+    // resume is sitting right beside the conversation, unparsed.
+    run: ({ art }) => {
       const { doc, sourceName, sourceText } = resume();
-      if (!isEmptyResume(doc) || !sourceText.trim()) return { doc: forModel(doc) };
+      const full = (doc.art ?? []).filter((piece) => art?.includes(piece.id));
+      const seen = forModel(doc);
+      const read = {
+        ...seen,
+        art: seen.art.map((piece) => full.find((one) => one.id === piece.id) ?? piece),
+      };
+      if (!isEmptyResume(doc) || !sourceText.trim()) return { doc: read };
 
       return {
-        doc: forModel(doc),
+        doc: read,
         upload: {
           name: sourceName,
-          note: "Their resume is already in your instructions in full. Answer from it, and carry it across with update_resume when they ask for a change.",
+          note: "Their resume is already sent to you in full, after the conversation. Answer from it, and carry it across with update_resume when they ask for a change.",
         },
       };
     },
@@ -206,6 +218,58 @@ const TOOLS = [
       resume().patchDoc({ basics: { ...resume().doc.basics, ...basics } });
       mark(boxIds.basics);
       return { ok: true };
+    },
+  }),
+  defineTool({
+    name: "edit_text",
+    description:
+      "Change wording in place, like find-and-replace in an editor: each edit swaps one exact piece of text for another. The fastest and safest way to reword a bullet, fix a typo, change a date or a title, or recolour or relabel a drawing — nothing you don't name can change. Send every change for a request in one call; they all land or none do. Copy find exactly as the text is now. It must match once in its scope unless all is set; to delete a bullet, replace its whole text with nothing.",
+    parameters: z.object({
+      edits: z
+        .array(
+          z.object({
+            in: z
+              .string()
+              .optional()
+              .describe(
+                "Where to look: basics, section:<id>, item:<id>, or art:<id> for a drawing's SVG. Leave out to search every word on the page.",
+              ),
+            find: z.string().min(1).describe("The exact text as it is now."),
+            replace: z.string().describe("What it becomes. Empty to delete it."),
+            all: z.boolean().optional().describe("Change every match instead of exactly one."),
+          }),
+        )
+        .min(1),
+    }),
+    label: "Edited the wording",
+    // The change itself, when it is one: what it said and what it says now.
+    detail: (args) => {
+      const edits = args.edits ?? [];
+      if (edits.length > 1) return `${edits.length} changes`;
+      const [one] = edits;
+      if (!one?.find || one.replace === undefined) return undefined;
+      const cut = (text: string) => (text.length > 28 ? `${text.slice(0, 27).trimEnd()}…` : text);
+      return one.replace ? `“${cut(one.find)}” → “${cut(one.replace)}”` : `cut “${cut(one.find)}”`;
+    },
+    step: ({ edits }, before) => {
+      const names = partNames(before);
+      const parts = applyTextEdits(before, edits).touched.map((box) => names[box] ?? box);
+      return parts.length ? `Reworded ${parts.join(", ")}` : "Edited the wording";
+    },
+    target: ({ edits }, doc) => whereIs(doc, edits?.[0] as Partial<TextEdit> | undefined),
+    run: ({ edits }) => {
+      const { doc, touched } = applyTextEdits(resume().doc, edits);
+      for (const piece of doc.art ?? []) {
+        if (!touched.includes(boxIds.art(piece.id)) || !piece.svg) continue;
+        if (!readSvg(piece.svg).tree) {
+          throw new Error(
+            `That leaves the drawing "${piece.id}" with nothing a PDF can draw. Check the edit keeps its markup whole.`,
+          );
+        }
+      }
+      resume().patchDoc({ basics: doc.basics, sections: doc.sections, art: doc.art });
+      touched.forEach(mark);
+      return { ok: true, changed: touched };
     },
   }),
   defineTool({
@@ -371,18 +435,23 @@ const TOOLS = [
   defineTool({
     name: "look_at_page",
     description:
-      "See the resume exactly as it prints: a picture of each page, and every part's box in page points. Use it before placing art, to find space and line things up, and after, to check what you made — overlaps, balance, legibility — and fix what is off. grid rules a light 50pt grid with labelled edges, to read positions off.",
+      "See the resume exactly as it prints, with every part's box in page points. Whole pages by default; give part (basics, section:<id>, item:<id>, art:<id>) to look closely at just that part, drawn large — far cheaper, and sharper for checking a sticker, a line or a drawing. Use it before placing art, to find space and line things up, and after, to check what you made — overlaps, balance, legibility — and fix what is off. grid rules a light grid labelled in page points (every 50pt, every 10pt close up).",
     parameters: z.object({
+      part: z
+        .string()
+        .optional()
+        .describe("A part to look at closely, by its id. Leave out for whole pages."),
       pages: z
         .array(z.number().int().min(1))
         .optional()
-        .describe("Which pages, from 1. All (up to 3) by default."),
+        .describe("Which pages, from 1, when looking at whole pages. All (up to 3) by default."),
       grid: z.boolean().optional(),
     }),
     beforeCarry: true,
     label: "Looked at the page",
+    detail: (args) => args.part,
     target: () => undefined,
-    run: async ({ pages, grid }) => {
+    run: async ({ part, pages, grid }) => {
       const doc = resume().doc;
       const drawn = await whenDrawn(doc);
       if (!drawn.url) {
@@ -392,9 +461,39 @@ const TOOLS = [
             : "Nothing is on the page yet.",
         );
       }
-      const shots = await shootPages(drawn.url, { pages, grid });
       const size = PAGE_SIZE[doc.theme.page] ?? PAGE_SIZE.letter;
-      const parts = describeLayout(drawn.boxes, partNames(doc));
+      const names = partNames(doc);
+
+      if (part) {
+        const box = drawn.boxes[part];
+        if (!box) {
+          throw new Error(
+            `There is no "${part}" on the page. Parts: ${Object.keys(drawn.boxes)
+              .filter((id) => id !== "page")
+              .join(", ")}.`,
+          );
+        }
+        const close = await shootRegion(drawn.url, { ...box, page: box.page + 1 }, grid);
+        if (!close) throw new Error("Couldn't draw that part.");
+        // Only what overlaps the crop: the parts in view, not the whole page.
+        const inView = describeLayout(drawn.boxes, names).filter(
+          (one) =>
+            one.page === box.page + 1 &&
+            one.x < close.shown.x + close.shown.width &&
+            one.x + one.width > close.shown.x &&
+            one.y < close.shown.y + close.shown.height &&
+            one.y + one.height > close.shown.y,
+        );
+        const summary = { page: box.page + 1, shown: close.shown, parts: inView };
+        return withPictures(
+          summary,
+          `${names[part] ?? part}, close up: page ${box.page + 1}, the area from ${close.shown.x},${close.shown.y} at ${close.shown.width}×${close.shown.height}pt. Parts in view, in page points:\n${JSON.stringify(inView)}`,
+          [{ ...close.shot, caption: `${part}${grid ? " (10pt grid, page points)" : ""}:` }],
+        );
+      }
+
+      const shots = await shootPages(drawn.url, { pages, grid });
+      const parts = describeLayout(drawn.boxes, names);
       const summary = {
         page: { size: doc.theme.page, width: size.width, height: size.height, count: drawn.pages },
         parts,
@@ -537,6 +636,7 @@ export async function runTool(name: string, input: unknown, ask?: Ask) {
 /**
  * Where everything sits on the page as last drawn, for the model to place
  * art against without having to look first. One line per part, in points.
+ * The server decides whether a turn needs it (see `needsLayout`).
  */
 export function layoutBrief() {
   const { boxes, pages, doc } = useLayoutStore.getState();

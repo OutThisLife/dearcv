@@ -1,4 +1,4 @@
-import type { SystemModelMessage } from "ai";
+import type { ModelMessage, SystemModelMessage } from "ai";
 import { artForModel } from "@/lib/resume/art";
 import { isEmptyResume, resumeDocSchema, type ResumeDoc } from "@/lib/resume/schema";
 
@@ -49,7 +49,7 @@ Files they attach to a message:
 const ART = `Art — drawings, pictures and hand-drawn marks on the page:
 - Anyone may want a decorated resume: a sticker by their name, a watercolour wash behind the header, a sidebar, an infographic of their skills, a photo. Make it when they ask. Never add art they did not ask for — a plain resume stays plain.
 - The page is in points (1/72in) from its top-left: letter is 612×792, A4 595×842. Margins are usually 36–54pt. The art already on the page is in the snapshot's art list.
-- Look first. Before placing anything that has to fit around the text, call look_at_page (grid: true) to see the page and every part's box. Find empty space there — a margin, the gap beside a short header line — rather than guessing.
+- Look first. Before placing anything that has to fit around the text, find empty space — a margin, the gap beside a short header line — rather than guessing: in where the page puts each part (sent with the resume while art is in play), or with look_at_page (grid: true) to see it.
 - place_art puts each piece in a box: x, y, width, height. Pinned to a part of the resume with anchor (basics, section:<id>, item:<id>), x and y are from that part's top-left and it moves with that part when the text reflows — do that for anything that belongs to a line or an entry. Leave anchor out for page decoration, with page set for pages after the first.
 - layer: behind for backgrounds, washes, bands, big shapes and highlighter; front for stickers, doodles and accents. Something in front must not sit on text unless that is the point (a circle around a word, an underline).
 - What goes in a piece:
@@ -57,7 +57,8 @@ const ART = `Art — drawings, pictures and hand-drawn marks on the page:
   - Shapes, borders, dividers, blobs, frames, bands, gradients, charts, an infographic, a monogram: svg — one complete <svg viewBox="…"> drawn to fill its box. A PDF draws paths, shapes, gradients, clipPath and text; it cannot draw filters, blur, shadows, masks or patterns, so fake depth with gradients and layered translucent shapes. Use the resume's own colours (theme accent, text, muted) unless they ask for others. Text in an svg is set in Helvetica, Times, Courier or the script face — name one.
   - Hand-drawn marks — an underline, a circled word, a scribbled arrow, a highlight: strokes — points in the piece's own box, about one every 4–8pt, with pressure 0.3–1 to swell and taper. marker: true for a highlighter (wide, flat, see-through; put it behind the text).
   - Something original no stock picture has: generate_image, then place its asset. It is slow and costs them, so only when it is worth it.
-- After placing, read what place_art says landed and covers. When the look matters — anything more than one small sticker — look_at_page and fix what is off: overlaps, crowding, things that don't line up with the text, colours that fight. Two or three passes is normal.
+- After placing, read what place_art says landed and covers. When the look matters — anything more than one small sticker — check it and fix what is off: overlaps, crowding, things that don't line up with the text, colours that fight. look_at_page with part set looks closely at one piece or entry for a fraction of what whole pages cost; look at whole pages for balance. Two or three passes is normal.
+- To change part of a drawing — a colour, a label, one bar of a chart — read its svg (get_resume with art) and use edit_text in art:<id>. Send svg in place_art only to redraw it.
 - Restraint reads as design. A few deliberate pieces in the resume's palette beat many. Keep every word readable: a background behind text stays light (opacity 0.1–0.3) unless they want it bold.
 - Anything drawn is invisible to applicant tracking systems. Never put words that matter (their name, a job) only in art.`;
 
@@ -68,8 +69,9 @@ ${POLICY}
 ${SOURCES}
 
 When to use which tool:
-- get_resume if the snapshot below might be stale
-- update_basics / upsert_item / remove_item / upsert_section / remove_section for surgical content edits
+- get_resume if the snapshot after the conversation might be stale
+- edit_text to change wording: a word, a phrase, a bullet, a date, a title, a typo. It is find-and-replace — name only what changes, copied exactly as it is now. Every change a request makes goes in one call, even across entries ("tighten every bullet" is one edit_text with an edit per bullet). Nothing you don't name can change, so prefer it over restating an entry.
+- update_basics / upsert_item / remove_item / upsert_section / remove_section for structure: adding or removing an entry or section, moving one, or rewriting most of an entry at once
 - Adding a section: one upsert_section with a new id, and \`before\` set to the id of the section it goes ahead of (leave it out to add it last). Adding a job: upsert_item with \`before\` set to the entry it goes above — the newest job goes first, above the current top one.
 - Emoji print on the page as full-color pictures, in any field. Use one where an emoji belongs in the text itself — a 🍌 after their name, a ✈️ beside a line. For a picture that stands on its own, use art (below).
 - update_theme only if they asked to change the look (typeface, text color, accent, header layout, density)
@@ -81,6 +83,15 @@ ${ART}
 
 Carrying an uploaded resume across is transcription, not writing. Every word stays as printed: bullets verbatim, dates as written, link text as shown. If the original has no headline, the copy has none — do not summarize them into one. Keep the section order and give every section and item a stable kebab-case id. The look — typeface, which lines are bold, rules, bullets, spacing — was measured off the file itself and is applied on its own. You cannot see it from the text, so do not guess at it, do not "restore" it, and never try to express it through content.
 After a change, say what you did in one or two sentences. Never paste search citations, footnotes or raw URLs into a reply — if where you found something matters, say it in words ("from their GitHub", "from the company's site").`;
+
+/**
+ * A cache breakpoint, for the providers that need one marked (Anthropic, and
+ * OpenRouter passing it on); the rest cache any repeated prefix on their own.
+ */
+export const CACHE = {
+  openrouter: { cacheControl: { type: "ephemeral" } },
+  anthropic: { cacheControl: { type: "ephemeral" } },
+} as const;
 
 /**
  * For the background transcription at upload, so the live document is already
@@ -101,10 +112,7 @@ export const CARRY_TEXT = `You are transcribing a resume from extracted PDF text
 const INSTRUCTION: SystemModelMessage = {
   role: "system",
   content: CHAT_TEXT,
-  providerOptions: {
-    openrouter: { cacheControl: { type: "ephemeral" } },
-    anthropic: { cacheControl: { type: "ephemeral" } },
-  },
+  providerOptions: CACHE,
 };
 
 /**
@@ -119,7 +127,7 @@ export function forModel(doc: ResumeDoc) {
 
 function resumeContext(doc: ResumeDoc | null, sourceText: string, layout: string) {
   if (!doc) {
-    return "Live resume snapshot was missing or invalid. Call get_resume before editing.";
+    return "The resume couldn't be read this turn. Call get_resume before editing.";
   }
 
   const upload = sourceText.trim();
@@ -138,7 +146,7 @@ function resumeContext(doc: ResumeDoc | null, sourceText: string, layout: string
 
   return `${state}
 
-Live resume JSON (snapshot from the start of this turn):
+Live resume JSON, as it is right now:
 ${JSON.stringify(forModel(doc))}${layout ? `\n\nWhere it is on the page as drawn now, in points from each page's top-left:\n${layout}` : ""}`;
 }
 
@@ -167,6 +175,32 @@ const UNDONE_TEXT = `They stepped back through the page's history before sending
 const UNDONE_RULES = `- Work from the page as it is now. Don't reapply an undone change unless they ask for it back ("put that back", "redo that").
 - Whatever you change now replaces the undone steps: they are dropped from the history. Don't mention the history or the undo unless they bring it up.`;
 
+/**
+ * Words that mean a request is about art on the page.
+ */
+const ARTY =
+  /\b(art|draw|doodle|sketch|sticker|logo|icon|image|picture|photo|graphic|illustrat|infographic|chart|diagram|shape|badge|emoji|decorat|border|frame|background|highlight|underline|circle|arrow|place|position|beside|next to|corner|look)/i;
+
+/**
+ * Whether a turn needs to know where everything sits on the page: while
+ * there is art on it, or the latest message asks about some. A wording or
+ * date change has no use for every box on the page, and look_at_page hands
+ * the same boxes back whenever a turn turns out to need them after all.
+ */
+export function needsLayout(doc: unknown, latest: string) {
+  const art = resumeDocSchema.safeParse(doc).data?.art;
+  return Boolean(art?.length) || ARTY.test(latest);
+}
+
+/**
+ * What the model is sent beside the conversation, split by how often it
+ * changes. The instructions never change, so they lead and are cached once.
+ * Everything about the page right now — the resume, where it sits, what was
+ * undone, a comment's pin — changes on every edit, so it goes *after* the
+ * conversation, as a note at the end. Providers cache a prompt from its
+ * start: sent first, it made every request re-read the whole conversation at
+ * full price, including each step of a turn that makes several edits.
+ */
 export function chatPrompt(input: {
   doc?: unknown;
   sourceText?: unknown;
@@ -182,20 +216,36 @@ export function chatPrompt(input: {
   const undone = typeof input.undone === "string" ? input.undone.trim().slice(0, 4000) : "";
   const layout = typeof input.layout === "string" ? input.layout.trim().slice(0, 12000) : "";
 
+  const context = [
+    CONTEXT_NOTE,
+    resumeContext(parsed.success ? parsed.data : null, sourceText, layout),
+    undone && `${UNDONE_TEXT}\n${undone}\n\n${UNDONE_RULES}`,
+    comment && `${COMMENT_TEXT}\n\nWhere it is pinned:\n${comment}`,
+    comments && !comment && `${COMMENTS_TEXT}\n\n${comments}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return { instructions: [INSTRUCTION], context };
+}
+
+const CONTEXT_NOTE = `[Not from them: the state of their resume right now, sent with every request. Their latest message is the one before this. Answer that; never reply to this note.]`;
+
+/**
+ * The conversation as sent: a cache breakpoint on its last message, so the
+ * next request — the next step of this turn, or the next turn — re-reads
+ * only what is new since, then this request's context after it.
+ */
+export function withContext(messages: ModelMessage[], context: string): ModelMessage[] {
+  const last = messages.at(-1);
+  if (!last) return [{ role: "user", content: context }];
+  const options: Record<string, Record<string, unknown>> = { ...last.providerOptions };
+  for (const [provider, value] of Object.entries(CACHE)) {
+    options[provider] = { ...options[provider], ...value };
+  }
   return [
-    INSTRUCTION,
-    {
-      role: "system" as const,
-      content: resumeContext(parsed.success ? parsed.data : null, sourceText, layout),
-    },
-    ...(undone
-      ? [{ role: "system" as const, content: `${UNDONE_TEXT}\n${undone}\n\n${UNDONE_RULES}` }]
-      : []),
-    ...(comment
-      ? [{ role: "system" as const, content: `${COMMENT_TEXT}\n\nWhere it is pinned:\n${comment}` }]
-      : []),
-    ...(comments && !comment
-      ? [{ role: "system" as const, content: `${COMMENTS_TEXT}\n\n${comments}` }]
-      : []),
+    ...messages.slice(0, -1),
+    { ...last, providerOptions: options } as ModelMessage,
+    { role: "user", content: [{ type: "text", text: context }] },
   ];
 }

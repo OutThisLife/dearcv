@@ -11,7 +11,7 @@ import {
 import { z } from "zod";
 import { isThreadId, saveMessages } from "@/lib/db";
 import { createModel, llmErrorMessage, readLlmRequest } from "@/lib/llm";
-import { chatPrompt } from "@/lib/prompts";
+import { chatPrompt, needsLayout, withContext } from "@/lib/prompts";
 import { fetchReadablePage } from "@/lib/resume/fetch-page";
 import { findImages } from "@/lib/resume/find-images";
 import { generateImageTool } from "@/lib/resume/generate-image";
@@ -88,6 +88,22 @@ export async function POST(req: Request) {
     generate_image: generateImageTool(llm.image),
   };
 
+  const latest =
+    messages
+      .findLast((message) => message.role === "user")
+      ?.parts.map((part) => (part.type === "text" ? part.text : ""))
+      .join(" ") ?? "";
+
+  const { instructions, context } = chatPrompt({
+    doc,
+    sourceText,
+    comment,
+    comments,
+    undone,
+    // A comment is pinned to a place on the page, so its chat always gets it.
+    layout: comment || needsLayout(doc, latest) ? layout : "",
+  });
+
   const result = streamText({
     model: llm.model,
     // Only the newest look at the page goes back to the model, and every
@@ -96,7 +112,7 @@ export async function POST(req: Request) {
     messages: liftPictures(
       await convertToModelMessages(withoutPictures(messages, true), { tools: allTools }),
     ),
-    instructions: chatPrompt({ doc, sourceText, comment, comments, undone, layout }),
+    instructions,
     abortSignal: req.signal,
     // Frontend tools have no execute, so they end the loop on their own. The
     // budget is for chained server tools: search, then fetch each good hit.
@@ -105,8 +121,13 @@ export async function POST(req: Request) {
     // A made picture alone can take most of a minute.
     timeout: { totalMs: 115_000, toolMs: 75_000 },
     tools: allTools,
-    // Pictures the model is handed mid-turn — one it just made — go the same way.
-    prepareStep: ({ messages: step }) => ({ messages: liftPictures(step) }),
+    // Rebuilt from the conversation every step rather than from the last
+    // step's prompt, so the page's context is always the one note at the end
+    // instead of piling up in the middle. Pictures the model is handed
+    // mid-turn — one it just made — are lifted out the same way.
+    prepareStep: ({ initialMessages, responseMessages }) => ({
+      messages: withContext(liftPictures([...initialMessages, ...responseMessages]), context),
+    }),
   });
 
   return result.toUIMessageStreamResponse({
