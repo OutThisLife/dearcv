@@ -158,6 +158,7 @@ ${JSON.stringify(forModel(doc))}${layout ? `\n\nWhere it is on the page as drawn
 const COMMENT_TEXT = `Their latest message was left as a comment pinned to a spot on their resume, the way a design comment is pinned in Figma. They wrote it looking at that spot, so "this", "here", "under this", "that line" mean what is under the pin. Where it is pinned is below.
 
 - Do what it asks to what it points at, with the editing tools, then reply in a sentence or two saying what changed. Plain sentences, no headings or lists — it may be shown in a small thread beside the pin.
+- Once your edit is made, the resume in the note already shows it. That is your change, not one that was there before: say what you changed ("Tightened it to…"), never that it was already done.
 - If you cannot tell what it refers to or what they want even after looking things up, change nothing and ask one short question.
 - Other comments may be being worked on at the same moment. Touch only what this one is about, and prefer the narrowest edit — one item rather than its whole section — so you never overwrite another comment's change.`;
 
