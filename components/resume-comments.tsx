@@ -240,8 +240,19 @@ function Card({ spot, width, children }: { spot: Spot; width: number; children: 
 
   // Opened low on the screen, its reply box would sit below the fold: bring
   // it up, the least it takes, and leave the page alone when it already fits.
+  // The reply grows it after that, so it keeps itself in view as it grows.
   useEffect(() => {
-    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const card = ref.current;
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    let height = card.offsetHeight;
+    const grown = new ResizeObserver(() => {
+      if (card.offsetHeight <= height) return;
+      height = card.offsetHeight;
+      card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    grown.observe(card);
+    return () => grown.disconnect();
   }, []);
 
   return (
