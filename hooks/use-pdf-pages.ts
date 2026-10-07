@@ -12,8 +12,13 @@ export type PageLine = { text: string; x: number; top: number; width: number; he
  * can say what it is pointing at.
  */
 export type PageBox = {
+  /** Where the page's own top edge would be. Above `start` once its margin is cut away. */
   top: number;
+  /** The part of the page on screen, from `start` to `end`. */
+  start: number;
+  end: number;
   width: number;
+  /** The whole page's, margins and all. */
   height: number;
   scale: number;
   lines: PageLine[];
@@ -77,6 +82,47 @@ const MIN_WIDTH_REM = 0.5;
 const IGNORE_RESIZE_REM = 0.125;
 
 const SETTLE_MS = 80;
+
+/**
+ * How much of a page's margin is kept either side of a break. The pages run
+ * on as one sheet, so a break should read as the gap between two entries,
+ * not as a bottom margin and a top margin stacked on screen.
+ */
+const SEAM_PT = 12;
+
+/** A row darker than this anywhere is ink, not paper. */
+const PAPER = 248;
+
+/**
+ * The first and last rows with anything on them, in canvas pixels. Read off
+ * the paint rather than the text, so a rule, a photo or a sticker in the
+ * margin counts. A stripe running the page's full height, as the accent-bar
+ * header draws, is chrome and doesn't. A page with nothing else on it, or
+ * not on white paper, is kept whole.
+ */
+function inkRows(canvas: HTMLCanvasElement): [number, number] | null {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  const ink = (i: number) =>
+    // Unpainted canvas is clear, not black.
+    data[i + 3]! >= 8 && (data[i]! < PAPER || data[i + 1]! < PAPER || data[i + 2]! < PAPER);
+  const last = (height - 1) * width * 4;
+  const stripe = Array.from({ length: width }, (_, x) => ink(x * 4) && ink(last + x * 4));
+  const inked = (row: number) => {
+    for (let x = 0, i = row * width * 4; x < width; x++, i += 4) {
+      if (!stripe[x] && ink(i)) return true;
+    }
+    return false;
+  };
+  let top = 0;
+  while (top < height && !inked(top)) top++;
+  if (top === height) return null;
+  let bottom = height - 1;
+  while (bottom > top && !inked(bottom)) bottom--;
+  return [top, bottom + 1];
+}
 
 const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 
@@ -146,18 +192,48 @@ export function usePdfPages(url: string | null) {
       await pdf.cleanup();
       if (cancelled) return;
 
-      host.replaceChildren(...painted);
+      // Each page shows from a little above its first ink to a little below
+      // its last, except at the sheet's own top and bottom, which keep their
+      // margins. A clip around each canvas does the cutting, so the canvas
+      // itself and everything measured against it stay whole-page.
+      const seam = (i: number) => Math.round(SEAM_PT * (painted[i]!.width / points[i]!));
+      const crops = painted.map((canvas, i) => {
+        const ink = inkRows(canvas);
+        if (!ink) return [0, canvas.height] as const;
+        return [
+          i === 0 ? 0 : Math.max(0, ink[0] - seam(i)),
+          i === painted.length - 1 ? canvas.height : Math.min(canvas.height, ink[1] + seam(i)),
+        ] as const;
+      });
+
+      host.replaceChildren(
+        ...painted.map((canvas, i) => {
+          const [from, to] = crops[i]!;
+          const clip = document.createElement("div");
+          clip.style.overflow = "hidden";
+          // As a share of the width, so it holds while the pane resizes
+          // between paints.
+          clip.style.aspectRatio = `${canvas.width} / ${to - from}`;
+          canvas.style.marginTop = `${(-from / canvas.width) * 100}%`;
+          clip.append(canvas);
+          return clip;
+        }),
+      );
 
       // Measure the painted canvases rather than adding up heights, so the
       // marks cannot drift a subpixel per page down a long resume.
       setPages(
         Array.from(host.children).map((child, i) => {
-          const canvas = child as HTMLCanvasElement;
+          const clip = child as HTMLDivElement;
+          const canvas = clip.firstElementChild as HTMLCanvasElement;
+          const cut = (crops[i]![0] / painted[i]!.width) * canvas.clientWidth;
           return {
-            top: canvas.offsetTop,
+            top: clip.offsetTop - cut,
+            start: clip.offsetTop,
+            end: clip.offsetTop + clip.clientHeight,
             width: canvas.clientWidth,
             height: canvas.clientHeight,
-            scale: canvas.clientWidth / points[i],
+            scale: canvas.clientWidth / points[i]!,
             lines: texts[i] ?? [],
           };
         }),

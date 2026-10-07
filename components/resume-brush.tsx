@@ -92,7 +92,7 @@ export function ResumeBrush({ pages }: { pages: PageBox[] }) {
     const rect = host.current!.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    const index = pages.findIndex((page) => y >= page.top && y <= page.top + page.height);
+    const index = pages.findIndex((page) => y >= page.start && y <= page.end);
     return { index, x, y };
   };
 

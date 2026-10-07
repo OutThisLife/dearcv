@@ -89,7 +89,7 @@ export function ResumeComments({ boxes, pages }: { boxes: PdfBoxes; pages: PageB
             const host = event.currentTarget.getBoundingClientRect();
             const x = event.clientX - host.left;
             const y = event.clientY - host.top;
-            const index = pages.findIndex((page) => y >= page.top && y <= page.top + page.height);
+            const index = pages.findIndex((page) => y >= page.start && y <= page.end);
             const page = pages[index];
             if (!page) return;
             const pin = { page: index, x: x / page.scale, y: (y - page.top) / page.scale };

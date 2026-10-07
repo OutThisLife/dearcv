@@ -77,12 +77,7 @@ export function ResumeActivity({
       {marks.map((mark) => {
         if (mark.id === boxIds.page) {
           return pages.map((page, i) => (
-            <Flash
-              key={`${mark.id}-${mark.at}-${i}`}
-              mark={mark}
-              rect={{ left: 0, ...page }}
-              inset
-            />
+            <Flash key={`${mark.id}-${mark.at}-${i}`} mark={mark} rect={shown(page)} inset />
           ));
         }
         const at = rect(mark.id);
@@ -94,7 +89,7 @@ export function ResumeActivity({
         resolve={(target, at) => {
           if (target === HEAD) return reading;
           if (at > drawnAt && !targets.includes(target)) return undefined;
-          return target === boxIds.page ? pages[0] && { left: 0, ...pages[0] } : rect(target);
+          return target === boxIds.page ? pages[0] && shown(pages[0]) : rect(target);
         }}
         busy={targets.length > 0}
       />
@@ -103,6 +98,14 @@ export function ResumeActivity({
 }
 
 type Rect = { left: number; top: number; width: number; height: number };
+
+/** The part of a page that is on screen. */
+const shown = (page: PageBox): Rect => ({
+  left: 0,
+  top: page.start,
+  width: page.width,
+  height: page.end - page.start,
+});
 
 const place = ({ left, top, width, height }: Rect, out: number): CSSProperties => ({
   left: left - out,
