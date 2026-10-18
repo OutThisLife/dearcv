@@ -1,5 +1,6 @@
 import {
   canPersist,
+  forgetOldQuotas,
   forgetOrphanAssets,
   forgetThreads,
   knownPdfPaths,
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
   if (!canPersist()) return Response.json({ swept: 0, files: 0, orphans: 0, pictures: 0 });
 
   try {
+    await forgetOldQuotas();
     // Pictures whose thread was never kept — a picture made in a session that
     // never got a reply worth saving. Rows only, so no storage needed.
     const pictures = await forgetOrphanAssets(GRACE_MS / 3_600_000);

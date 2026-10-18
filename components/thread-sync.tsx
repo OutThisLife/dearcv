@@ -1,5 +1,7 @@
 "use client";
 
+import { track } from "@/lib/analytics";
+
 import { useEffect } from "react";
 import { storedHistory, useHistoryStore } from "@/lib/store/history";
 import { replaying, useReplayStore } from "@/lib/store/replay";
@@ -64,12 +66,16 @@ export function ThreadSync() {
         });
         if (!put.ok) throw new Error(`upload: ${put.status}`);
 
-        if (!cancelled) useResumeStore.getState().setPdfPath(path);
+        if (!cancelled) {
+          useResumeStore.getState().setPdfPath(path);
+          track("pdf_stored");
+        }
       } catch (error) {
         // Costs the reload, not the session: the thread still works for as long
         // as the tab is open. Worth saying out loud either way.
         console.error("Couldn't store that PDF.", error);
         if (!cancelled) {
+          track("pdf_storage_failed");
           useResumeStore
             .getState()
             .setError("Couldn't store your original PDF, so it won't survive a reload.");
@@ -86,6 +92,8 @@ export function ThreadSync() {
     if (!addressed || !id) return;
 
     let timer = 0;
+    let saved = false;
+    let failing = false;
     const save = () => {
       // A replay walks the page through its past; writing that down would
       // leave the thread on whichever step it happened to be showing.
@@ -105,7 +113,17 @@ export function ThreadSync() {
         // Lets a save outlive a closing tab, but the browser refuses a
         // keepalive body over 64KB outright — which a long history passes.
         keepalive: body.length < KEEPALIVE_BYTES,
-      }).catch(() => undefined);
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Thread save failed");
+          if (!saved || failing) track("thread_saved");
+          saved = true;
+          failing = false;
+        })
+        .catch(() => {
+          if (!failing) track("thread_save_failed");
+          failing = true;
+        });
     };
 
     const schedule = () => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { track, timingBucket } from "@/lib/analytics";
+
 import { useEffect, useRef, useState } from "react";
 import { artSources } from "@/lib/resume/art";
 import { readPdfBoxes, type PdfBoxes } from "@/lib/resume/pdf-boxes";
@@ -100,12 +102,14 @@ export function usePdfRender(doc: ResumeDoc) {
         const url = URL.createObjectURL(blob);
         setDrawn({ boxes: laidOut, at });
         showPreview(url);
+        track("pdf_rendered", timingBucket(Date.now() - at));
         useLayoutStore.setState({ boxes: laidOut, pages, doc, at, error: null, url });
       } catch (error) {
         // Left unhandled this waited forever on a page that was never coming,
         // while the transcript happily said the edit had landed.
         console.error("Couldn't draw the resume.", error);
         if (generation.current !== id) return;
+        track("pdf_render_failed", timingBucket(Date.now() - at));
         setFailed(true);
         useLayoutStore.setState({
           doc,

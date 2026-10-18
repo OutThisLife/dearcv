@@ -1,5 +1,7 @@
 "use client";
 
+import { track } from "@/lib/analytics";
+
 import { CheckIcon, DownloadIcon, RotateCcwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ResumePreview } from "@/components/resume-preview";
@@ -143,6 +145,7 @@ function SaveButton({ url }: { url: string | null }) {
         a.href = url;
         a.download = name ? `${name.replace(/\s+/g, "-")}-resume.pdf` : "resume.pdf";
         a.click();
+        track("pdf_export_clicked");
         setSaved(true);
       }}
     >

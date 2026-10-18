@@ -1,10 +1,11 @@
+import { track } from "@/lib/analytics";
 import { create } from "zustand";
 import { HISTORY_LIMIT, type StoredHistory } from "@/lib/resume/history";
 import { changedBoxes } from "@/lib/resume/pdf-boxes";
 import type { ResumeDoc } from "@/lib/resume/schema";
 import { useActivityStore } from "@/lib/store/activity";
 import { useMarksStore } from "@/lib/store/marks";
-import { takeOver } from "@/lib/store/replay";
+import { replaying, takeOver } from "@/lib/store/replay";
 import { useResumeStore } from "@/lib/store/resume";
 import { useThreadStore } from "@/lib/store/thread";
 
@@ -122,6 +123,7 @@ export const useHistoryStore = create<HistoryState>()((set, get) => ({
     const { revisions, at } = get();
     const revision = revisions[to];
     if (!revision || to === at) return;
+    if (!replaying()) track(to < at ? "history_undo" : "history_redo");
     // Replays what differs between the two, the way the edit showed it the
     // first time: flashed and scanned, with the agent's cursor sent over.
     const changed = changedBoxes(revisions[at].doc, revision.doc);

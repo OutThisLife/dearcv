@@ -1,3 +1,4 @@
+import { Analytics } from "@/components/analytics";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Literata } from "next/font/google";
 import { ThemeProvider } from "next-themes";
@@ -62,6 +63,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <TooltipProvider>{children}</TooltipProvider>
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>

@@ -1,3 +1,4 @@
+import { readJson as readBounded, RequestBodyError } from "@/lib/request-security";
 import {
   CHATGPT_CALLBACK_PATH,
   DYNAMIC_CLIENT_ID,
@@ -29,36 +30,43 @@ function allowedClient(requested: string | undefined, hostname: string) {
 
 /** Trades the popup's code for tokens, which go into cookies and nowhere else. */
 export async function POST(req: Request) {
-  const { code, verifier, nonce, clientId } = ((await req.json().catch(() => ({}))) ??
-    {}) as ExchangeBody;
-  const { origin, hostname } = requestOrigin(req);
-
-  const client = allowedClient(clientId, hostname);
-  if (!client) {
-    return Response.json({ error: "ChatGPT sign-in isn't set up here." }, { status: 400 });
-  }
-  if (!code || !verifier || !nonce) {
-    return Response.json({ error: "That sign-in came back incomplete." }, { status: 400 });
-  }
-
   try {
-    const { account, subject } = await exchangeCode({
-      code,
-      verifier,
-      nonce,
-      clientId: client,
-      redirectUri: `${origin}${CHATGPT_CALLBACK_PATH}`,
-    });
-    const owner = chatGptOwner(subject);
-    if (owner) await startSession(owner);
-    return Response.json({ account });
+    const { code, verifier, nonce, clientId } = ((await readBounded(req, 32_768)) ??
+      {}) as ExchangeBody;
+    const { origin, hostname } = requestOrigin(req);
+
+    const client = allowedClient(clientId, hostname);
+    if (!client) {
+      return Response.json({ error: "ChatGPT sign-in isn't set up here." }, { status: 400 });
+    }
+    if (!code || !verifier || !nonce) {
+      return Response.json({ error: "That sign-in came back incomplete." }, { status: 400 });
+    }
+
+    try {
+      const { account, subject } = await exchangeCode({
+        code,
+        verifier,
+        nonce,
+        clientId: client,
+        redirectUri: `${origin}${CHATGPT_CALLBACK_PATH}`,
+      });
+      const owner = chatGptOwner(subject);
+      if (owner) await startSession(owner);
+      return Response.json({ account });
+    } catch (error) {
+      console.error("ChatGPT sign-in failed.", error);
+      const message =
+        error instanceof ChatGptAuthError
+          ? error.message
+          : "Couldn't finish signing in with ChatGPT.";
+      return Response.json({ error: message }, { status: 502 });
+    }
   } catch (error) {
-    console.error("ChatGPT sign-in failed.", error);
-    const message =
-      error instanceof ChatGptAuthError
-        ? error.message
-        : "Couldn't finish signing in with ChatGPT.";
-    return Response.json({ error: message }, { status: 502 });
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
 }
 

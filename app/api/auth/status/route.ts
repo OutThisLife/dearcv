@@ -12,7 +12,7 @@ function chatGpt(hostname: string): ChatGptAvailability {
 
 export async function GET(req: Request) {
   return Response.json({
-    configured: Boolean(process.env.OPENROUTER_API_KEY),
+    configured: process.env.NODE_ENV !== "production" && Boolean(process.env.OPENROUTER_API_KEY),
     chatgpt: chatGpt(requestOrigin(req).hostname),
   });
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { track, timingBucket } from "@/lib/analytics";
+
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/ai-sdk";
 import {
   AssistantRuntimeProvider,
@@ -7,7 +9,7 @@ import {
   WebSpeechDictationAdapter,
 } from "@assistant-ui/react";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Thread } from "@/components/assistant-ui/thread";
 import { AuthDialog } from "@/components/auth-dialog";
 import { ComposerDraft } from "@/components/composer-draft";
@@ -48,10 +50,16 @@ function useDictation() {
 
 export function Assistant() {
   const dictation = useDictation();
+  const requestStarted = useRef(0);
   // Read once. The runtime binds both at mount and neither changes after.
   const [thread] = useState(() => useThreadStore.getState());
 
   const runtime = useChatRuntime({
+    onError: () => track("chat_failed"),
+    onFinish: ({ isAbort, isError }) => {
+      if (!isAbort && !isError)
+        track("chat_completed", timingBucket(performance.now() - requestStarted.current));
+    },
     id: thread.id,
     messages: thread.initialMessages,
     adapters: { dictation, attachments },
@@ -68,6 +76,8 @@ export function Assistant() {
       headers: () => authHeaders(),
       body: async () => {
         // A turn waits for the upload's transcription rather than racing it.
+        requestStarted.current = performance.now();
+        track("chat_request");
         await ensureCarried();
         const { doc, sourceText } = useResumeStore.getState();
         // The transport overwrites `id` with its own thread-list id, so the
@@ -133,7 +143,10 @@ function AddressThread() {
     // The action is reached, not subscribed: listing it as a dependency reads
     // as though this could re-run when the setter changes, and the answer
     // arriving is the only thing that should set it off.
-    if (answered) useThreadStore.getState().address();
+    if (answered) {
+      if (!useThreadStore.getState().addressed) track("first_reply");
+      useThreadStore.getState().address();
+    }
   }, [answered]);
 
   return null;

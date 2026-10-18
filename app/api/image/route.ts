@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       // Never run as a page of ours, whatever the far end claimed it was.
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       "x-content-type-options": "nosniff",
-      "cache-control": "private, max-age=3600",
+      "cache-control": "private, no-store",
     },
   });
 }

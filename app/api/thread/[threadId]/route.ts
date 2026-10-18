@@ -1,3 +1,4 @@
+import { readBytes as readBounded, RequestBodyError } from "@/lib/request-security";
 import { z } from "zod";
 import { canPersist, isThreadId, saveResume } from "@/lib/db";
 import { SOURCE_CHARS } from "@/lib/prompts";
@@ -54,34 +55,41 @@ const body = (threadId: string) =>
  * an upload, a tool edit, a theme change.
  */
 export async function PUT(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const { threadId } = await ctx.params;
-  if (!isThreadId(threadId)) {
-    return Response.json({ error: "Bad thread id." }, { status: 400 });
+  try {
+    const { threadId } = await ctx.params;
+    if (!isThreadId(threadId)) {
+      return Response.json({ error: "Bad thread id." }, { status: 400 });
+    }
+    // Without a database this is a no-op rather than a failure, so the editor
+    // does not have to know whether it is running against one.
+    if (!canPersist()) return Response.json({ saved: false });
+
+    // Same bargain the upload route strikes: a thread is kept for someone we can
+    // name, and anyone else gets one that lasts as long as their tab. Writing
+    // rows for strangers would let anyone fill the database a UUID at a time.
+    const viewer = await readViewer();
+    if (!viewer) return Response.json({ saved: false });
+
+    const raw = new TextDecoder().decode(await readBounded(req, MAX_BYTES));
+    if (raw.length > MAX_BYTES) {
+      return Response.json({ error: "That resume is too big." }, { status: 413 });
+    }
+
+    const parsed = body(threadId).safeParse(readJson(raw));
+    if (!parsed.success) {
+      return Response.json({ error: "Bad resume payload." }, { status: 400 });
+    }
+
+    const saved = await saveResume(threadId, parsed.data, viewer);
+    if (!saved) {
+      return Response.json({ error: "That thread belongs to another key." }, { status: 403 });
+    }
+
+    return Response.json({ saved: true });
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
-  // Without a database this is a no-op rather than a failure, so the editor
-  // does not have to know whether it is running against one.
-  if (!canPersist()) return Response.json({ saved: false });
-
-  // Same bargain the upload route strikes: a thread is kept for someone we can
-  // name, and anyone else gets one that lasts as long as their tab. Writing
-  // rows for strangers would let anyone fill the database a UUID at a time.
-  const viewer = await readViewer();
-  if (!viewer) return Response.json({ saved: false });
-
-  const raw = await req.text();
-  if (raw.length > MAX_BYTES) {
-    return Response.json({ error: "That resume is too big." }, { status: 413 });
-  }
-
-  const parsed = body(threadId).safeParse(readJson(raw));
-  if (!parsed.success) {
-    return Response.json({ error: "Bad resume payload." }, { status: 400 });
-  }
-
-  const saved = await saveResume(threadId, parsed.data, viewer);
-  if (!saved) {
-    return Response.json({ error: "That thread belongs to another key." }, { status: 403 });
-  }
-
-  return Response.json({ saved: true });
 }

@@ -1,4 +1,5 @@
-import { isThreadId } from "@/lib/db";
+import { readJson as readBounded, RequestBodyError } from "@/lib/request-security";
+import { isThreadId, claimThread } from "@/lib/db";
 import { readViewer } from "@/lib/session";
 import { canStore, pdfPath, signUpload } from "@/lib/storage";
 
@@ -13,20 +14,32 @@ import { canStore, pdfPath, signUpload } from "@/lib/storage";
  * long as the tab does.
  */
 export async function POST(req: Request) {
-  if (!canStore()) return Response.json({ error: "No storage configured." }, { status: 503 });
-  if (!(await readViewer())) {
-    return Response.json({ error: "Connect a provider to keep files." }, { status: 401 });
+  try {
+    if (!canStore()) return Response.json({ error: "No storage configured." }, { status: 503 });
+    const viewer = await readViewer();
+    if (!viewer) {
+      return Response.json({ error: "Connect a provider to keep files." }, { status: 401 });
+    }
+
+    const { threadId } = ((await readBounded(req, 4096)) ?? {}) as { threadId?: string };
+    // The path is built here, never accepted from the caller: it decides which
+    // thread the file is filed under, and so who can later read it.
+    if (!isThreadId(threadId)) {
+      return Response.json({ error: "Bad thread id." }, { status: 400 });
+    }
+
+    if (!(await claimThread(threadId, viewer))) {
+      return Response.json({ error: "That thread is unavailable." }, { status: 403 });
+    }
+
+    const signed = await signUpload(pdfPath(threadId));
+    if (!signed) return Response.json({ error: "No storage configured." }, { status: 503 });
+
+    return Response.json(signed);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
-
-  const { threadId } = (await req.json().catch(() => ({}))) as { threadId?: string };
-  // The path is built here, never accepted from the caller: it decides which
-  // thread the file is filed under, and so who can later read it.
-  if (!isThreadId(threadId)) {
-    return Response.json({ error: "Bad thread id." }, { status: 400 });
-  }
-
-  const signed = await signUpload(pdfPath(threadId));
-  if (!signed) return Response.json({ error: "No storage configured." }, { status: 503 });
-
-  return Response.json(signed);
 }

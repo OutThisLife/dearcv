@@ -1,3 +1,4 @@
+import { track } from "@/lib/analytics";
 import { create } from "zustand";
 import type { ChatGptAccount, ChatGptAvailability } from "@/lib/chatgpt";
 import { renewChatGpt, signOutOfChatGpt } from "@/lib/chatgpt-signin";
@@ -102,6 +103,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   hydrated: false,
   connect: (next, options) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    track("provider_connected");
     const welcome = Boolean(options?.welcome);
     set({ ...SIGNED_OUT, ...next, dialogOpen: welcome, welcome });
     // A ChatGPT sign-in started its session while it was being verified.
@@ -119,14 +121,22 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       options,
     ),
   disconnect: () => {
+    if (holdsCredential(get())) track("provider_disconnected");
     if (get().via === "chatgpt") void signOutOfChatGpt();
     localStorage.removeItem(STORAGE_KEY);
     set(SIGNED_OUT);
     void fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
   },
-  openDialog: () => set({ dialogOpen: true }),
+  openDialog: () => {
+    if (!get().dialogOpen) track("auth_dialog_opened");
+    set({ dialogOpen: true });
+  },
   closeDialog: () => set({ dialogOpen: false, welcome: false, pendingSend: false }),
-  requestSend: () => set({ pendingSend: true, dialogOpen: true }),
+  requestSend: () => {
+    track("auth_required");
+    get().openDialog();
+    set({ pendingSend: true });
+  },
   clearPendingSend: () => set({ pendingSend: false }),
   hydrate: () => {
     const stored = readStored();

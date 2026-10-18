@@ -1,3 +1,4 @@
+import { track } from "@/lib/analytics";
 import {
   AbstractChat,
   type ChatState,
@@ -105,6 +106,7 @@ export const useCommentsStore = create<CommentsState>()((set) => ({
   cancelDraft: () => set({ draft: null }),
   setOpen: (open) => set({ open, draft: null, placing: false }),
   resolve: (id) => {
+    track("comment_resolved");
     void chats.get(id)?.stop();
     set((state) => ({
       comments: state.comments.map((one) => (one.id === id ? { ...one, resolved: true } : one)),
@@ -112,6 +114,7 @@ export const useCommentsStore = create<CommentsState>()((set) => ({
     }));
   },
   remove: (id) => {
+    track("comment_deleted");
     void chats.get(id)?.stop();
     chats.delete(id);
     set((state) => ({
@@ -222,6 +225,7 @@ function chatFor(id: string) {
   const chat: CommentChat = new CommentChat({
     id,
     state: new StoreChatState(id),
+    onError: () => track("comment_failed"),
     transport: new DefaultChatTransport({
       api: "/api/chat",
       headers: () => authHeaders(),
@@ -287,6 +291,7 @@ export function submitDraft(text: string) {
   const { draft, comments } = useCommentsStore.getState();
   const words = text.trim();
   if (!draft || !words) return;
+  track("comment_created");
 
   const owner = documentKey();
   const via = link && !link.busy() ? "chat" : "agent";
@@ -316,6 +321,7 @@ export function submitDraft(text: string) {
 export async function reply(id: string, text: string) {
   const words = text.trim();
   if (!words) return;
+  track("comment_replied");
   if (commentOf(id)?.via === "chat" && link) {
     patch(id, { resolved: false, undone: false });
     inChat = id;
@@ -457,6 +463,7 @@ export function setUndone(id: string, undone: boolean) {
   const comment = commentOf(id);
   const steps = stepsOf(id);
   if (!comment || !steps.length || Boolean(comment.undone) === undone) return;
+  track(undone ? "comment_undo" : "comment_redo");
 
   const resume = useResumeStore.getState();
   const was = resume.doc;

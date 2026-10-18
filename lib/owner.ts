@@ -1,3 +1,4 @@
+import { verifyProviderKey } from "@/lib/verify-key";
 import { createHmac } from "node:crypto";
 import type { LlmProvider } from "@/lib/providers";
 
@@ -44,7 +45,7 @@ async function openRouterAccount(apiKey: string) {
  * another device brings your work with it.
  */
 export async function resolveOwner(provider: LlmProvider, apiKey: string) {
-  if (!canOwn() || !apiKey) return null;
+  if (!canOwn() || !apiKey || apiKey.length > 4096) return null;
 
   if (provider === "openrouter") {
     const account = await openRouterAccount(apiKey);
@@ -53,5 +54,5 @@ export async function resolveOwner(provider: LlmProvider, apiKey: string) {
 
   // OpenAI and Anthropic publish no account id, so here the key is the
   // identity. Rotating one starts a fresh set of threads.
-  return fingerprint(`${provider}:${apiKey}`);
+  return (await verifyProviderKey(provider, apiKey)) ? fingerprint(`${provider}:${apiKey}`) : null;
 }

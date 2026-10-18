@@ -1,3 +1,4 @@
+import { readJson as readBounded, RequestBodyError } from "@/lib/request-security";
 import { streamText, Output } from "ai";
 import { z } from "zod";
 import { createModel, llmErrorMessage, readLlmRequest } from "@/lib/llm";
@@ -37,67 +38,74 @@ const carrySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => null)) as { sourceText?: unknown } | null;
-  const sourceText = typeof body?.sourceText === "string" ? body.sourceText.trim() : "";
-  if (!sourceText) {
-    return Response.json({ error: "Nothing to transcribe." }, { status: 400 });
-  }
+  try {
+    const body = (await readBounded(req, 256 * 1024)) as { sourceText?: unknown } | null;
+    const sourceText = typeof body?.sourceText === "string" ? body.sourceText.trim() : "";
+    if (!sourceText) {
+      return Response.json({ error: "Nothing to transcribe." }, { status: 400 });
+    }
 
-  const { apiKey, provider, model, plan } = await readLlmRequest(req);
-  if (!apiKey) {
-    return Response.json({ error: "No key connected." }, { status: 401 });
-  }
+    const { apiKey, provider, model, plan } = await readLlmRequest(req);
+    if (!apiKey) {
+      return Response.json({ error: "No key connected." }, { status: 401 });
+    }
 
-  const llm = createModel({ apiKey, provider, model, plan });
+    const llm = createModel({ apiKey, provider, model, plan });
 
-  // The stream reports failure here rather than throwing it, and the reason
-  // (a turned-down key, a plan limit) is worth more than "no output".
-  let failure: unknown;
-  const result = streamText({
-    model: llm.model,
-    output: Output.object({
-      schema: carrySchema,
-      name: "ResumeContent",
-      description: "The uploaded resume, transcribed word for word.",
-    }),
-    instructions: CARRY_TEXT,
-    prompt: sourceText.slice(0, SOURCE_CHARS),
-    temperature: 0,
-    // OpenAI's strict mode wants every field required, and a resume's are
-    // not: a headline, a link, an end date are each often absent. Strict
-    // refused the whole schema, so every upload on a key or a ChatGPT plan
-    // failed to transcribe. The reply is still checked against the schema.
-    providerOptions: { openai: { strictJsonSchema: false } },
-    abortSignal: req.signal,
-    onError: ({ error }) => {
-      failure ??= error;
-    },
-  });
+    // The stream reports failure here rather than throwing it, and the reason
+    // (a turned-down key, a plan limit) is worth more than "no output".
+    let failure: unknown;
+    const result = streamText({
+      model: llm.model,
+      output: Output.object({
+        schema: carrySchema,
+        name: "ResumeContent",
+        description: "The uploaded resume, transcribed word for word.",
+      }),
+      instructions: CARRY_TEXT,
+      prompt: sourceText.slice(0, SOURCE_CHARS),
+      temperature: 0,
+      // OpenAI's strict mode wants every field required, and a resume's are
+      // not: a headline, a link, an end date are each often absent. Strict
+      // refused the whole schema, so every upload on a key or a ChatGPT plan
+      // failed to transcribe. The reply is still checked against the schema.
+      providerOptions: { openai: { strictJsonSchema: false } },
+      abortSignal: req.signal,
+      onError: ({ error }) => {
+        failure ??= error;
+      },
+    });
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (line: object) =>
-        controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
-      try {
-        let last = "";
-        for await (const partial of result.partialOutputStream) {
-          const at = latestText(partial);
-          if (at && at !== last) {
-            last = at;
-            send({ at });
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (line: object) =>
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        try {
+          let last = "";
+          for await (const partial of result.partialOutputStream) {
+            const at = latestText(partial);
+            if (at && at !== last) {
+              last = at;
+              send({ at });
+            }
           }
+          const content = await result.output;
+          if (!content) throw new Error("The model didn't return a resume.");
+          send({ content });
+        } catch (error) {
+          console.error("Carry failed.");
+          send({ error: llmErrorMessage(failure ?? error) });
         }
-        const content = await result.output;
-        if (!content) throw new Error("The model didn't return a resume.");
-        send({ content });
-      } catch (error) {
-        console.error("Carry failed.", failure ?? error);
-        send({ error: llmErrorMessage(failure ?? error) });
-      }
-      controller.close();
-    },
-  });
+        controller.close();
+      },
+    });
 
-  return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+    return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { replaying } from "@/lib/store/replay";
+import { track } from "@/lib/analytics";
+
 import { useAssistantTool, useAssistantToolUI, useAui } from "@assistant-ui/react";
 import { useEffect } from "react";
 import { z } from "zod";
@@ -615,7 +618,14 @@ async function applyEdit(spec: AnyTool, input: unknown, ask?: Ask) {
   input = untracked(input);
   // Awaited: placing art waits for the page to be redrawn, so it can say
   // where things actually landed.
-  const result = await spec.run(input as never);
+  let result;
+  try {
+    result = await spec.run(input as never);
+  } catch (error) {
+    if (!replaying()) track("resume_edit_failed");
+    throw error;
+  }
+  if (resume().doc !== before && !replaying()) track("resume_edited");
   history.record(spec.step?.(input as never, before) ?? spec.label, ask);
   return result;
 }

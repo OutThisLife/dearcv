@@ -35,8 +35,13 @@ export async function readLlmRequest(req: Request) {
   }
 
   const headerKey = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  const apiKey = headerKey || process.env.OPENROUTER_API_KEY || "";
-  const requested = req.headers.get("x-resume-provider") || process.env.RESUME_PROVIDER || "";
+  // A browser cannot choose which vendor receives the host's credential.
+  // Hosted keys are local-only until a paid/authenticated budget gate exists.
+  const serverKey = process.env.NODE_ENV !== "production" ? process.env.OPENROUTER_API_KEY : "";
+  const apiKey = headerKey || serverKey || "";
+  const requested = headerKey
+    ? req.headers.get("x-resume-provider") || ""
+    : process.env.RESUME_PROVIDER || "";
   const provider = isProvider(requested) ? requested : "openrouter";
   const model = process.env.RESUME_MODEL || DEFAULT_MODEL[provider];
 
@@ -141,5 +146,5 @@ export function llmErrorMessage(error: unknown) {
   if (/quota|credit|billing|insufficient|402|429/i.test(message)) {
     return "Your provider is out of credit, or you've hit a rate limit.";
   }
-  return message;
+  return "The provider could not complete that request. Please try again.";
 }

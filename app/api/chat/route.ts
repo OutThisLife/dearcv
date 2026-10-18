@@ -1,3 +1,8 @@
+import {
+  readJson as readBounded,
+  RequestBodyError,
+  localAttachmentsOnly,
+} from "@/lib/request-security";
 import { frontendTools } from "@assistant-ui/ai-sdk";
 import {
   convertToModelMessages,
@@ -9,7 +14,7 @@ import {
   type UIMessage,
 } from "ai";
 import { z } from "zod";
-import { isThreadId, saveMessages } from "@/lib/db";
+import { isThreadId, saveMessages, loadThread, mayRead } from "@/lib/db";
 import { createModel, llmErrorMessage, readLlmRequest } from "@/lib/llm";
 import { chatPrompt, needsLayout, withContext } from "@/lib/prompts";
 import { fetchReadablePage } from "@/lib/resume/fetch-page";
@@ -23,140 +28,180 @@ export const maxDuration = 120;
 const SOURCE_NOTE =
   "GitHub profiles and repositories are read through the API and come back clean. LinkedIn cannot be read at all. If a fetch fails, the result says why — pass that reason on rather than inventing one.";
 
+type ChatRequest = {
+  id?: string;
+  threadId?: string;
+  messages?: UIMessage[];
+  tools?: Record<string, { description?: string; parameters: JSONSchema7 }>;
+  doc?: unknown;
+  sourceText?: unknown;
+  /** Where on the page, for a comment's own conversation. */
+  comment?: unknown;
+  /** The page's open comments, told to the chat. */
+  comments?: unknown;
+  /** The steps they stepped back past, while looking at an earlier one. */
+  undone?: unknown;
+  /** Where every part sits on the page as last drawn, in points. */
+  layout?: unknown;
+};
+
 export async function POST(req: Request) {
-  const { apiKey, provider, model, plan } = await readLlmRequest(req);
-  if (!apiKey) {
-    return Response.json({ error: "Connect a provider to send a message." }, { status: 401 });
-  }
+  try {
+    const { apiKey, provider, model, plan } = await readLlmRequest(req);
+    if (!apiKey) {
+      return Response.json({ error: "Connect a provider to send a message." }, { status: 401 });
+    }
 
-  const {
-    id,
-    threadId,
-    messages,
-    tools,
-    doc,
-    sourceText,
-    comment,
-    comments,
-    undone,
-    layout,
-  }: {
-    id?: string;
-    threadId?: string;
-    messages?: UIMessage[];
-    tools?: Record<string, { description?: string; parameters: JSONSchema7 }>;
-    doc?: unknown;
-    sourceText?: unknown;
-    /** Where on the page, for a comment's own conversation. */
-    comment?: unknown;
-    /** The page's open comments, told to the chat. */
-    comments?: unknown;
-    /** The steps they stepped back past, while looking at an earlier one. */
-    undone?: unknown;
-    /** Where every part sits on the page as last drawn, in points. */
-    layout?: unknown;
-  } = await req.json();
+    const payload = await readBounded(req, 4 * 1024 * 1024);
+    const checked = z
+      .object({
+        id: z.string().max(256).optional(),
+        threadId: z.string().uuid().optional(),
+        messages: z
+          .array(
+            z
+              .object({
+                id: z.string().max(256),
+                role: z.enum(["system", "user", "assistant"]),
+                parts: z.array(z.object({ type: z.string() }).passthrough()).max(200),
+              })
+              .passthrough(),
+          )
+          .max(500),
+        tools: z
+          .record(
+            z.string(),
+            z.object({
+              description: z.string().optional(),
+              parameters: z.record(z.string(), z.unknown()),
+            }),
+          )
+          .optional(),
+      })
+      .passthrough()
+      .safeParse(payload);
+    if (!checked.success) return Response.json({ error: "Bad chat payload." }, { status: 400 });
 
-  if (!Array.isArray(messages)) {
-    return Response.json({ error: "No messages sent." }, { status: 400 });
-  }
+    const { id, threadId, messages, tools, doc, sourceText, comment, comments, undone, layout } =
+      checked.data as unknown as ChatRequest;
 
-  // Read now rather than in onFinish, which runs once the response is already
-  // on its way out and no longer has a request to read cookies from.
-  const viewer = await readViewer();
+    if (!Array.isArray(messages)) {
+      return Response.json({ error: "No messages sent." }, { status: 400 });
+    }
 
-  const llm = createModel({
-    apiKey,
-    provider,
-    model,
-    plan,
-    sessionId: id?.slice(0, 256),
-  });
+    // Read now rather than in onFinish, which runs once the response is already
+    // on its way out and no longer has a request to read cookies from.
+    const viewer = await readViewer();
+    if (threadId && !isThreadId(threadId)) {
+      return Response.json({ error: "Bad thread id." }, { status: 400 });
+    }
+    if (threadId) {
+      const existing = await loadThread(threadId);
+      if (existing && !mayRead(existing, viewer)) {
+        return Response.json({ error: "That thread is unavailable." }, { status: 403 });
+      }
+    }
 
-  const allTools = {
-    ...frontendTools(tools ?? {}),
-    // Every provider runs its own search, so there is nothing here to build.
-    web_search: llm.search,
-    fetch_url: tool({
-      description: `Read any public page as text: a GitHub profile or repository, a personal site, a portfolio, a job post. This is how you look someone up. What comes back is material to work from — apply it with the editing tools. ${SOURCE_NOTE}`,
-      inputSchema: z.object({
-        url: z.url().describe("Absolute http(s) URL of the page to read."),
+    const llm = createModel({
+      apiKey,
+      provider,
+      model,
+      plan,
+      sessionId: id?.slice(0, 256),
+    });
+
+    const allTools = {
+      ...frontendTools(tools ?? {}),
+      // Every provider runs its own search, so there is nothing here to build.
+      web_search: llm.search,
+      fetch_url: tool({
+        description: `Read any public page as text: a GitHub profile or repository, a personal site, a portfolio, a job post. This is how you look someone up. What comes back is material to work from — apply it with the editing tools. ${SOURCE_NOTE}`,
+        inputSchema: z.object({
+          url: z.url().describe("Absolute http(s) URL of the page to read."),
+        }),
+        execute: async ({ url }, { abortSignal }) => fetchReadablePage(url, abortSignal),
       }),
-      execute: async ({ url }, { abortSignal }) => fetchReadablePage(url, abortSignal),
-    }),
-    find_images: findImages,
-    generate_image: generateImageTool(llm.image),
-  };
+      find_images: findImages,
+      generate_image: generateImageTool(llm.image),
+    };
 
-  const latest =
-    messages
-      .findLast((message) => message.role === "user")
-      ?.parts.map((part) => (part.type === "text" ? part.text : ""))
-      .join(" ") ?? "";
+    const latest =
+      messages
+        .findLast((message) => message.role === "user")
+        ?.parts.map((part) => (part.type === "text" ? part.text : ""))
+        .join(" ") ?? "";
 
-  const { instructions, context } = chatPrompt({
-    doc,
-    sourceText,
-    comment,
-    comments,
-    undone,
-    // A comment is pinned to a place on the page, so its chat always gets it.
-    layout: comment || needsLayout(doc, latest) ? layout : "",
-  });
+    const { instructions, context } = chatPrompt({
+      doc,
+      sourceText,
+      comment,
+      comments,
+      undone,
+      // A comment is pinned to a place on the page, so its chat always gets it.
+      layout: comment || needsLayout(doc, latest) ? layout : "",
+    });
 
-  const result = streamText({
-    model: llm.model,
-    // Only the newest look at the page goes back to the model, and every
-    // picture rides in a message of its own: most providers take images from
-    // the user but not inside a tool's result.
-    messages: liftPictures(
-      await convertToModelMessages(withoutPictures(messages, true), { tools: allTools }),
-    ),
-    instructions,
-    abortSignal: req.signal,
-    // Frontend tools have no execute, so they end the loop on their own. The
-    // budget is for chained server tools: search, then fetch each good hit.
-    stopWhen: isStepCount(8),
-    temperature: 0,
-    // A made picture alone can take most of a minute.
-    timeout: { totalMs: 115_000, toolMs: 75_000 },
-    tools: allTools,
-    // Rebuilt from the conversation every step rather than from the last
-    // step's prompt, so the page's context is always the one note at the end
-    // instead of piling up in the middle. Pictures the model is handed
-    // mid-turn — one it just made — are lifted out the same way.
-    prepareStep: ({ initialMessages, responseMessages }) => ({
-      messages: withContext(liftPictures([...initialMessages, ...responseMessages]), context),
-    }),
-  });
+    const result = streamText({
+      model: llm.model,
+      experimental_download: localAttachmentsOnly,
+      // Only the newest look at the page goes back to the model, and every
+      // picture rides in a message of its own: most providers take images from
+      // the user but not inside a tool's result.
+      messages: liftPictures(
+        await convertToModelMessages(withoutPictures(messages, true), { tools: allTools }),
+      ),
+      instructions,
+      abortSignal: req.signal,
+      // Frontend tools have no execute, so they end the loop on their own. The
+      // budget is for chained server tools: search, then fetch each good hit.
+      stopWhen: isStepCount(8),
+      temperature: 0,
+      // A made picture alone can take most of a minute.
+      timeout: { totalMs: 115_000, toolMs: 75_000 },
+      tools: allTools,
+      // Rebuilt from the conversation every step rather than from the last
+      // step's prompt, so the page's context is always the one note at the end
+      // instead of piling up in the middle. Pictures the model is handed
+      // mid-turn — one it just made — are lifted out the same way.
+      prepareStep: ({ initialMessages, responseMessages }) => ({
+        messages: withContext(liftPictures([...initialMessages, ...responseMessages]), context),
+      }),
+    });
 
-  return result.toUIMessageStreamResponse({
-    sendReasoning: true,
-    onError: llmErrorMessage,
-    originalMessages: messages,
-    // Without this the reply is stored with an empty id, because the SDK only
-    // infers one when the last original message is itself an assistant's. Two
-    // of those in a thread are indistinguishable to the runtime's history, so
-    // reopening it broke the chain and every turn re-parented to the root —
-    // which is what turned a conversation into a row of branches.
-    generateMessageId: generateId,
-    onFinish: ({ messages: history }) => {
-      if (!isThreadId(threadId)) return;
-      // The same bar the browser uses to give a thread its URL. A turn that
-      // died before the model said anything would otherwise leave a row behind
-      // that nothing links to and nobody can reach.
-      const answered = history.some(
-        (message) =>
-          message.role === "assistant" && message.parts.some((part) => part.type !== "step-start"),
-      );
-      if (!answered) return;
-      // Nothing downstream can retry this, so a failure has to at least be
-      // findable — silently losing the turn is how this went unnoticed before.
-      void saveMessages(threadId, withoutPictures(history, false), viewer).catch(
-        (error: unknown) => {
-          console.error(`Couldn't save thread ${threadId}.`, error);
-        },
-      );
-    },
-  });
+    return result.toUIMessageStreamResponse({
+      sendReasoning: true,
+      onError: llmErrorMessage,
+      originalMessages: messages,
+      // Without this the reply is stored with an empty id, because the SDK only
+      // infers one when the last original message is itself an assistant's. Two
+      // of those in a thread are indistinguishable to the runtime's history, so
+      // reopening it broke the chain and every turn re-parented to the root —
+      // which is what turned a conversation into a row of branches.
+      generateMessageId: generateId,
+      onFinish: ({ messages: history }) => {
+        if (!viewer || !isThreadId(threadId)) return;
+        // The same bar the browser uses to give a thread its URL. A turn that
+        // died before the model said anything would otherwise leave a row behind
+        // that nothing links to and nobody can reach.
+        const answered = history.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.parts.some((part) => part.type !== "step-start"),
+        );
+        if (!answered) return;
+        // Nothing downstream can retry this, so a failure has to at least be
+        // findable — silently losing the turn is how this went unnoticed before.
+        void saveMessages(threadId, withoutPictures(history, false), viewer).catch(
+          (error: unknown) => {
+            console.error(`Couldn't save thread ${threadId}.`, error);
+          },
+        );
+      },
+    });
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 }

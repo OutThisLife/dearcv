@@ -6,3 +6,9 @@ patchedDependencies:
   "@assistant-ui/tap@0.9.15": patches/@assistant-ui__tap@0.9.15.patch
   "@react-pdf/layout@5.2.0": patches/@react-pdf__layout@5.2.0.patch
   "@react-pdf/textkit@7.0.1": patches/@react-pdf__textkit@7.0.1.patch
+
+# Security floors for transitive packages until upstream ranges catch up.
+overrides:
+  "undici@>=7.0.0 <7.29.1": 7.29.1
+  "sharp@>=0.35.0 <0.35.5": 0.35.5
+  "source-map-js@<1.2.2": 1.2.2

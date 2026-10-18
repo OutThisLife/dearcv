@@ -1,5 +1,7 @@
 "use client";
 
+import { track } from "@/lib/analytics";
+
 import { ArrowUpRightIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -139,6 +141,7 @@ export function AuthDialog() {
 
     // Leave any existing error up. Clearing it here only to set it again a
     // moment later collapses the banner and jolts the whole dialog.
+    track("auth_key_started");
     setBusy("key");
     try {
       const res = await fetch("/api/auth/verify", {
@@ -148,11 +151,13 @@ export function AuthDialog() {
       });
       const result = (await res.json()) as { ok: boolean; error?: string };
       if (!result.ok) {
+        track("auth_failed");
         setError(result.error ?? "That key didn't work.");
         return;
       }
       connect({ provider, apiKey: key, via: "key" });
     } catch {
+      track("auth_failed");
       setError("Couldn't check that key. Are you online?");
     } finally {
       setBusy("");
@@ -161,6 +166,7 @@ export function AuthDialog() {
 
   const signIn = async () => {
     if (busy) return;
+    track("auth_oauth_started");
     setBusy("oauth");
     try {
       connect({
@@ -169,6 +175,7 @@ export function AuthDialog() {
         via: "oauth",
       });
     } catch (cause) {
+      track("auth_failed");
       setError(cause instanceof Error ? cause.message : "That didn't work.");
     } finally {
       setBusy("");
@@ -179,11 +186,13 @@ export function AuthDialog() {
     if (busy || !chatgpt || chatgpt === "loopback") return;
     const controller = new AbortController();
     pendingChatGpt.current = controller;
+    track("auth_chatgpt_started");
     setBusy("chatgpt");
     try {
       const { account, firstTime } = await signInWithChatGpt(chatgpt.clientId, controller.signal);
       connectChatGpt(account, { welcome: firstTime });
     } catch (cause) {
+      track(controller.signal.aborted ? "auth_cancelled" : "auth_failed");
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : "That didn't work.");
       }

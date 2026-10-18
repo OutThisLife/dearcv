@@ -35,7 +35,7 @@ export type StoredThread = {
   /** The steps the resume went through, so undo survives a reload. */
   history: StoredHistory | null;
   messages: UIMessage[];
-  /** Null for a thread that only its link protects. */
+  /** Null for legacy threads, which now require verified recovery. */
   ownerId: string | null;
 };
 
@@ -76,13 +76,13 @@ const identify = (message: UIMessage, index: number): UIMessage =>
 
 /** Whether a thread will open for whoever is asking. */
 export const mayRead = (thread: StoredThread, viewer: string | null) =>
-  thread.ownerId === null || thread.ownerId === viewer;
+  thread.ownerId !== null && thread.ownerId === viewer;
 
 /**
  * Both writes below carry the same guard, and both return whether it let them
  * through. An owner is stamped on at creation and never reassigned: adopting a
  * thread that arrived without one would mean the first connected person to open
- * a shared link takes it over, locking out whoever sent it.
+ * a shared link takes it over. Unowned legacy rows now fail closed.
  *
  * The guard lives in the statement rather than in a read beforehand, so two
  * writers can't both pass the check before either of them writes.
@@ -94,7 +94,7 @@ export async function saveResume(
   resume: Pick<StoredThread, "doc" | "sourceText" | "sourceName" | "pdfPath" | "history">,
   owner: string | null,
 ) {
-  if (!sql || !isThreadId(id)) return false;
+  if (!sql || !isThreadId(id) || !owner) return false;
 
   const rows = await sql`
     insert into threads (id, doc, source_text, source_name, pdf_path, history, owner_id)
@@ -109,7 +109,7 @@ export async function saveResume(
       pdf_path = excluded.pdf_path,
       history = excluded.history,
       updated_at = now()
-    where threads.owner_id is null or threads.owner_id = excluded.owner_id
+    where threads.owner_id = excluded.owner_id
     returning id
   `;
   return rows.length > 0;
@@ -117,7 +117,7 @@ export async function saveResume(
 
 /** The chat half, written server-side once a turn finishes streaming. */
 export async function saveMessages(id: string, messages: UIMessage[], owner: string | null) {
-  if (!sql || !isThreadId(id)) return false;
+  if (!sql || !isThreadId(id) || !owner) return false;
 
   const rows = await sql`
     insert into threads (id, messages, owner_id)
@@ -125,7 +125,7 @@ export async function saveMessages(id: string, messages: UIMessage[], owner: str
     on conflict (id) do update set
       messages = excluded.messages,
       updated_at = now()
-    where threads.owner_id is null or threads.owner_id = excluded.owner_id
+    where threads.owner_id = excluded.owner_id
     returning id
   `;
   return rows.length > 0;
@@ -173,6 +173,7 @@ export async function saveAsset(
   owner: string,
 ) {
   if (!sql || !isThreadId(threadId) || !isThreadId(id)) return false;
+  if (!(await claimThread(threadId, owner))) return false;
 
   const [thread] = await sql`select owner_id from threads where id = ${threadId}`;
   if (thread && thread.owner_id !== null && thread.owner_id !== owner) return false;
@@ -235,4 +236,35 @@ export async function knownPdfPaths(paths: string[]) {
 
   const rows = await sql`select pdf_path from threads where pdf_path = any(${paths}::text[])`;
   return new Set(rows.map((row) => row.pdf_path as string));
+}
+
+/** Reserve a new thread atomically before issuing storage capabilities. */
+export async function claimThread(id: string, owner: string) {
+  if (!sql || !isThreadId(id) || !owner) return false;
+  const rows = await sql`
+    insert into threads (id, owner_id) values (${id}, ${owner})
+    on conflict (id) do update set id = threads.id
+    where threads.owner_id = excluded.owner_id
+    returning id
+  `;
+  return rows.length > 0;
+}
+
+/** Shared fixed-window quota; the primary key makes concurrent increments atomic. */
+export async function consumeQuota(key: string, window: number, limit: number) {
+  if (!sql) return false;
+  const rows = await sql`
+    insert into request_quotas (key, window_start, hits) values (${key}, ${window}, 1)
+    on conflict (key) do update set
+      window_start = excluded.window_start,
+      hits = case when request_quotas.window_start = excluded.window_start then request_quotas.hits + 1 else 1 end
+    where request_quotas.window_start <> excluded.window_start or request_quotas.hits < ${limit}
+    returning hits
+  `;
+  return rows.length > 0;
+}
+
+export async function forgetOldQuotas() {
+  if (sql)
+    await sql`delete from request_quotas where window_start < ${Math.floor(Date.now() / 60_000) - 1440}`;
 }

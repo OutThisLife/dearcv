@@ -57,3 +57,11 @@ on conflict (id) do update set
   public = excluded.public,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
+-- Only keyed hashes of network identities, never raw IPs or credentials.
+create table if not exists request_quotas (
+  key text primary key,
+  window_start bigint not null,
+  hits integer not null
+);
+alter table request_quotas enable row level security;

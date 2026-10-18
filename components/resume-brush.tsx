@@ -1,5 +1,7 @@
 "use client";
 
+import { track } from "@/lib/analytics";
+
 import { HighlighterIcon, PenLineIcon } from "lucide-react";
 import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
@@ -25,7 +27,10 @@ type BrushState = { tool: Tool | null; setTool: (tool: Tool | null) => void };
 
 export const useBrushStore = create<BrushState>()((set) => ({
   tool: null,
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => {
+    if (tool) track(tool === "pen" ? "pen_selected" : "highlighter_selected");
+    set({ tool });
+  },
 }));
 
 /** A pen's nib and a highlighter's, in points. */
@@ -147,6 +152,7 @@ export function ResumeBrush({ pages }: { pages: PageBox[] }) {
     history.begin();
     store.patchDoc({ art: [...(store.doc.art ?? []), piece] });
     history.record(done.tool === "marker" ? "Highlighted" : "Drew a line");
+    track("resume_edited");
     useMarksStore.getState().clearMarks();
   };
 

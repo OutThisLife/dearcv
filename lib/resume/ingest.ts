@@ -1,3 +1,4 @@
+import { track, timingBucket } from "@/lib/analytics";
 import { isEmptyResume, MAX_PDF_BYTES, resumeContentSchema } from "@/lib/resume/schema";
 import { authHeaders } from "@/lib/store/auth";
 import { boxIds } from "@/lib/resume/pdf-boxes";
@@ -25,6 +26,7 @@ export function isPdf(file: File) {
 }
 
 export function pickPdf() {
+  track("pdf_picker_opened");
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "application/pdf,.pdf";
@@ -36,19 +38,23 @@ export function pickPdf() {
 }
 
 export async function ingestPdf(file: File) {
+  const started = performance.now();
   const store = useResumeStore.getState();
 
   if (!isPdf(file)) {
+    track("pdf_import_rejected");
     store.setError(`${file.name} isn't a PDF.`);
     return;
   }
   if (file.size > MAX_PDF_BYTES) {
+    track("pdf_import_rejected");
     store.setError("That PDF is over 10MB. Export a lighter one and try again.");
     return;
   }
 
   // A new upload replaces whatever was there, including a resume built from
   // the previous file.
+  track("pdf_import_started");
   store.resetBlank();
 
   // Show the file immediately. Reading it into an editable document costs
@@ -67,20 +73,23 @@ export async function ingestPdf(file: File) {
     // The page is read here, while the coordinates still exist. What they
     // mean is worked out once the transcription says what each line is.
     store.setSource(file, text, look, layout);
+    track("pdf_imported", timingBucket(performance.now() - started));
     // A scan with no text layer reads as a blank file. Nothing is broken, but
     // the agent is about to look like it cannot see a document that is plainly
     // on screen, so say why first.
     if (!text.trim()) {
+      track("pdf_no_text");
       store.setError("That PDF is a scan with no text in it, so tell me what's on it.");
     } else {
       // Fire the transcription now rather than inside their first request, so
       // "change my name" can be a one-field patch instead of a full rebuild.
       void ensureCarried();
     }
-  } catch (error) {
+  } catch {
     // A PDF we can't read still previews fine — it just can't be edited until
     // they say what's in it. Swallowing this silently hid a real bug once.
-    console.error("Couldn't read text out of that PDF.", error);
+    track("pdf_import_failed");
+    console.error("Couldn't read text out of that PDF.");
     store.setError("Couldn't read that PDF. Tell me what's on it and I'll build from that.");
   } finally {
     store.setIngesting(false);
@@ -120,6 +129,9 @@ export async function ensureCarried(): Promise<void> {
 }
 
 async function carrySource(sourceText: string) {
+  const started = performance.now();
+  let succeeded = false;
+  track("resume_transcription_started");
   const activity = useActivityStore.getState();
   activity.work(CARRYING, boxIds.page);
   try {
@@ -151,11 +163,16 @@ async function carrySource(sourceText: string) {
     const parsed = resumeContentSchema.safeParse(content);
     if (!parsed.success) return false;
     useResumeStore.getState().adoptContent(parsed.data, sourceText);
+    succeeded = true;
     return true;
   } catch (error) {
     console.error("Background carry didn't land.", error);
     return false;
   } finally {
+    track(
+      succeeded ? "resume_transcribed" : "resume_transcription_failed",
+      timingBucket(performance.now() - started),
+    );
     activity.readTo(null);
     activity.done(CARRYING);
   }

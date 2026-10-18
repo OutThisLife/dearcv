@@ -1,5 +1,7 @@
 "use client";
 
+import { track } from "@/lib/analytics";
+
 import { isAuthed, useAuthStore, useIsAuthed } from "@/lib/store/auth";
 import { takeOver } from "@/lib/store/replay";
 
@@ -45,6 +47,8 @@ async function steer(aui: Aui) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
+  track("chat_steered");
+  track("message_sent");
   aui.composer().send();
 }
 
@@ -160,6 +164,7 @@ export const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
         const trimmed = text.trim();
         if (trimmed !== text) setText(trimmed);
         if (!trimmed && !hasAttachments) event.preventDefault();
+        else track("message_sent");
       }}
     >
       <ComposerPrimitive.AttachmentDropzone
@@ -226,6 +231,7 @@ const RunningAction: FC = () => {
           size="icon"
           className="aui-composer-cancel size-7 rounded-full"
           aria-label="Stop generating"
+          onClick={() => track("chat_stopped")}
         />
       }
     >
@@ -251,6 +257,7 @@ export const ComposerAction: FC = () => {
                   size="icon"
                   className="aui-composer-dictate text-muted-foreground hover:text-foreground size-7 rounded-full"
                   aria-label="Start voice input"
+                  onClick={() => track("voice_input_started")}
                 />
               }
             >
@@ -268,6 +275,7 @@ export const ComposerAction: FC = () => {
                   size="icon"
                   className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
                   aria-label="Stop voice input"
+                  onClick={() => track("voice_input_stopped")}
                 />
               }
             >
@@ -294,7 +302,10 @@ export const EditComposer: FC = () => {
     >
       <ComposerPrimitive.Root
         // Editing a message during a replay continues the session as it was left.
-        onSubmitCapture={takeOver}
+        onSubmitCapture={() => {
+          takeOver();
+          track("message_updated");
+        }}
         className={cn(
           "aui-edit-composer-root",
           composerSurfaceClass,
