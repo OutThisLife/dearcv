@@ -51,31 +51,51 @@ export async function connectOpenRouter(): Promise<string> {
 
 function waitForCode(popup: Window) {
   return new Promise<string>((resolve, reject) => {
+    // A BroadcastChannel rather than window.opener: OpenRouter's sign-in hops
+    // through pages that cut the popup off from its opener, so a postMessage
+    // from the callback never arrives. Same-origin tabs still share a channel.
+    const channel = new BroadcastChannel(OAUTH_MESSAGE);
     let settled = false;
+    let cancel: number | undefined;
 
     const finish = (fn: () => void) => {
+      if (settled) return;
       settled = true;
+      channel.close();
       window.removeEventListener("message", onMessage);
+      window.removeEventListener("focus", onFocus);
       window.clearInterval(poll);
+      window.clearTimeout(cancel);
       fn();
     };
 
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.source !== OAUTH_MESSAGE) return;
-      const code = event.data.code as string | undefined;
-      finish(() => (code ? resolve(code) : reject(new Error("No code came back."))));
+    const take = (data: unknown) => {
+      const message = data as { source?: string; code?: string | null } | null;
+      if (message?.source !== OAUTH_MESSAGE) return;
+      finish(() => (message.code ? resolve(message.code) : reject(new Error("No code came back."))));
     };
 
-    // The callback closes itself right after posting, so give the message a
-    // beat to land before treating a closed window as a cancel.
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin === window.location.origin) take(event.data);
+    };
+    channel.onmessage = (event) => take(event.data);
+
+    // Once the opener link is cut, popup.closed reads true while the popup is
+    // still open. Only call it a cancel once this window has focus again, with
+    // a beat for the callback's message to land.
+    const onFocus = () => {
+      if (!popup.closed || settled) return;
+      window.clearTimeout(cancel);
+      cancel = window.setTimeout(
+        () => finish(() => reject(new Error("Sign-in was cancelled."))),
+        1500,
+      );
+    };
     const poll = window.setInterval(() => {
-      if (!popup.closed) return;
-      window.setTimeout(() => {
-        if (!settled) finish(() => reject(new Error("Sign-in was cancelled.")));
-      }, 500);
+      if (popup.closed && document.hasFocus()) onFocus();
     }, 400);
 
     window.addEventListener("message", onMessage);
+    window.addEventListener("focus", onFocus);
   });
 }
